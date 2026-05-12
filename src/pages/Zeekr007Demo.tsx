@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
+import { useInquiryModal } from "@/store/useInquiryModal";
 
 const ZEEKR_007_DATA = {
   name: "ZEEKR 007",
@@ -56,6 +57,7 @@ export default function Zeekr007Demo() {
 
   const add = useInquiryDraft((s) => s.toggleModelId);
   const selected = useInquiryDraft((s) => s.selectedModelIds.includes(modelId));
+  const openInquiry = useInquiryModal((s) => s.openModal);
 
   const name = isZh ? ZEEKR_007_DATA.name_zh : ZEEKR_007_DATA.name;
   const desc = isZh ? ZEEKR_007_DATA.description_zh : ZEEKR_007_DATA.description_en;
@@ -183,12 +185,13 @@ export default function Zeekr007Demo() {
             )}
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                to={`${base}/inquiry`}
+              <button
+                type="button"
+                onClick={openInquiry}
                 className="inline-flex flex-1 items-center justify-center rounded-xl bg-amber-500 px-6 py-3.5 text-base font-medium text-zinc-950 hover:bg-amber-400"
               >
                 {t("action.requestQuote")}
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => add(modelId)}

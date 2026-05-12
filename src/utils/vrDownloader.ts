@@ -641,6 +641,8 @@ export async function downloadExteriorVRImages(
   const colorGroups: VRColorGroup[] = [];
   const errors: string[] = [];
   let plateReplaceServiceDegraded = false;
+  const plateReplaceErrors: string[] = [];
+  let plateReplaceErrorCount = 0;
 
   onProgress?.({
     stage: "searching",
@@ -889,7 +891,13 @@ export async function downloadExteriorVRImages(
 
         let nextDataUrl = dataUrl;
         if (replaced.replaced) nextDataUrl = await blobToDataUrl(replaced.blob);
-        if (replaced.error) plateReplaceServiceDegraded = true;
+        if (replaced.error) {
+          plateReplaceServiceDegraded = true;
+          plateReplaceErrorCount++;
+          if (plateReplaceErrors.length < 5) {
+            plateReplaceErrors.push(`车牌替换失败（${colorName} ${currentIdx}/${totalImages}）：${replaced.error}`);
+          }
+        }
         replacedDataUrls[idx] = nextDataUrl;
       }
 
@@ -915,8 +923,11 @@ export async function downloadExteriorVRImages(
         stage: "done",
         current: 100,
         total: 100,
-        message: "车牌替换服务本次有异常，已自动跳过部分替换并使用原图继续",
+        message: `车牌替换服务本次有异常（失败 ${plateReplaceErrorCount} 张），已自动跳过并使用原图继续`,
       });
+      if (plateReplaceErrors.length > 0) {
+        errors.push(...plateReplaceErrors);
+      }
     }
 
     return { colorGroups, errors };
@@ -1036,6 +1047,8 @@ export async function downloadImagesForModelCategory(
 ): Promise<{ images: string[]; errors: string[]; autohomeSeriesId: number; specId: number | null }> {
   const errors: string[] = [];
   let plateReplaceServiceDegraded = false;
+  const plateReplaceErrors: string[] = [];
+  let plateReplaceErrorCount = 0;
   const images: string[] = [];
   const limit = Math.max(1, Math.min(60, Number(opts?.limit ?? 24)));
   const concurrency = Math.max(1, Math.min(8, Math.floor(Number(opts?.concurrency ?? 4))));
@@ -1250,7 +1263,13 @@ export async function downloadImagesForModelCategory(
 
     let nextDataUrl = dataUrl;
     if (replaced.replaced) nextDataUrl = await blobToDataUrl(replaced.blob);
-    if (replaced.error) plateReplaceServiceDegraded = true;
+    if (replaced.error) {
+      plateReplaceServiceDegraded = true;
+      plateReplaceErrorCount++;
+      if (plateReplaceErrors.length < 5) {
+        plateReplaceErrors.push(`车牌替换失败（${label} ${currentIdx}/${urls.length}）：${replaced.error}`);
+      }
+    }
     replacedDataUrls[i] = nextDataUrl;
   }
 
@@ -1268,8 +1287,11 @@ export async function downloadImagesForModelCategory(
       stage: "done",
       current: 100,
       total: 100,
-      message: "车牌替换服务本次有异常，已自动跳过部分替换并使用原图继续",
+      message: `车牌替换服务本次有异常（失败 ${plateReplaceErrorCount} 张），已自动跳过并使用原图继续`,
     });
+    if (plateReplaceErrors.length > 0) {
+      errors.push(...plateReplaceErrors);
+    }
   }
 
   return { images, errors, autohomeSeriesId, specId };
@@ -1456,6 +1478,8 @@ export async function downloadInteriorVRImages(
   const colorGroups: VRInteriorColorGroup[] = [];
   const errors: string[] = [];
   let plateReplaceServiceDegraded = false;
+  const plateReplaceErrors: string[] = [];
+  let plateReplaceErrorCount = 0;
 
   onProgress?.({
     stage: "searching",
@@ -1777,7 +1801,13 @@ export async function downloadInteriorVRImages(
 
       let nextDataUrl = dataUrl;
       if (replaced.replaced) nextDataUrl = await blobToDataUrl(replaced.blob);
-      if (replaced.error) plateReplaceServiceDegraded = true;
+      if (replaced.error) {
+        plateReplaceServiceDegraded = true;
+        plateReplaceErrorCount++;
+        if (plateReplaceErrors.length < 5) {
+          plateReplaceErrors.push(`车牌替换失败（${task.displayName} ${currentIdx}/${totalImages}）：${replaced.error}`);
+        }
+      }
       replacedDataUrls[idx] = nextDataUrl;
     }
 
@@ -1823,8 +1853,11 @@ export async function downloadInteriorVRImages(
         stage: "done",
         current: 100,
         total: 100,
-        message: "车牌替换服务本次有异常，已自动跳过部分替换并使用原图继续",
+        message: `车牌替换服务本次有异常（失败 ${plateReplaceErrorCount} 张），已自动跳过并使用原图继续`,
       });
+      if (plateReplaceErrors.length > 0) {
+        errors.push(...plateReplaceErrors);
+      }
     }
 
     return { colorGroups, errors };

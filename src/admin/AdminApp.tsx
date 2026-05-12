@@ -5,7 +5,7 @@ import { supabase } from "@/utils/supabaseClient";
 import AdminLogin from "@/pages/admin/AdminLogin";
 import AdminSiteDisplay from "@/pages/admin/AdminSiteDisplay";
 import AdminMaterialManagement from "@/pages/admin/AdminMaterialManagement";
-import AdminUserInquiries from "@/pages/admin/AdminUserInquiries";
+import AdminCustomerManagement from "@/pages/admin/AdminCustomerManagement";
 import AdminPermissionApproval from "@/pages/admin/AdminPermissionApproval";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminKnowledgeBase from "@/pages/admin/AdminKnowledgeBase";
@@ -265,7 +265,7 @@ export default function AdminApp() {
               物料资产管理
             </button>
             <button type="button" className={tabCls(tab === "customer-inquiries")} onClick={() => setTab("customer-inquiries")}>
-              客户报价管理
+              客户管理
             </button>
             <button type="button" className={tabCls(tab === "permission-approval")} onClick={() => setTab("permission-approval")}>
               权限审批管理
@@ -302,7 +302,7 @@ export default function AdminApp() {
         <div className="mt-2">
           {tab === "content-publish" ? <AdminSiteDisplay /> : null}
           {tab === "material-asset" ? <AdminMaterialManagement /> : null}
-          {tab === "customer-inquiries" ? <AdminUserInquiries /> : null}
+          {tab === "customer-inquiries" ? <AdminCustomerManagement /> : null}
           {tab === "permission-approval" ? <AdminPermissionApproval /> : null}
           {tab === "system-config" ? <AdminSettings /> : null}
           {tab === "knowledge-base" ? <AdminKnowledgeBase /> : null}

@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import logoUrl from "../../logo/youluminglogo.png?url";
 import { normalizeLocale } from "@/i18n/locales";
+import { useInquiryModal } from "@/store/useInquiryModal";
 
 export default function SiteFooter() {
   const { t } = useTranslation();
@@ -9,6 +10,7 @@ export default function SiteFooter() {
   const raw = typeof params.locale === "string" ? params.locale : null;
   const locale = normalizeLocale(raw) ?? window.localStorage.getItem("ylm_locale") ?? "en";
   const base = `/${locale}`;
+  const openInquiry = useInquiryModal((s) => s.openModal);
   return (
     <footer className="border-t border-border relative overflow-hidden" style={{ background: 'var(--color-bg-secondary)' }}>
       <div className="star-field" />
@@ -39,7 +41,13 @@ export default function SiteFooter() {
                 <Link to={`${base}/brands`} className="text-text-secondary hover:text-text-primary transition-colors">{t("nav.models", "车型")}</Link>
               </li>
               <li>
-                <Link to={`${base}/inquiry`} className="text-text-secondary hover:text-text-primary transition-colors">{t("nav.inquiry", "获取报价")}</Link>
+                <button
+                  type="button"
+                  onClick={openInquiry}
+                  className="text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  {t("nav.inquiry", "获取报价")}
+                </button>
               </li>
               <li>
                 <Link to={`${base}`} className="text-text-secondary hover:text-text-primary transition-colors">{t("nav.about", "关于我们")}</Link>
@@ -68,9 +76,13 @@ export default function SiteFooter() {
             <div className="mb-4 text-sm font-semibold text-text-primary">{t("footer.contact", "获取报价")}</div>
             <ul className="space-y-2 text-sm">
               <li>
-                <Link to={`${base}/inquiry`} className="text-text-secondary hover:text-text-primary transition-colors">
+                <button
+                  type="button"
+                  onClick={openInquiry}
+                  className="text-text-secondary hover:text-text-primary transition-colors"
+                >
                   {t("action.getQuote", "获取报价")}
-                </Link>
+                </button>
               </li>
               <li>
                 <a href="mailto:business@yolumi.com" className="text-text-secondary hover:text-text-primary transition-colors">

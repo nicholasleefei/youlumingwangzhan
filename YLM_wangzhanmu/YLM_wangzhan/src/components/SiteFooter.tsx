@@ -1,8 +1,13 @@
 import { useTranslation } from "react-i18next";
+import { Link, useParams } from "react-router-dom";
+import { normalizeLocale, type Locale } from "@/i18n/locales";
 import logoUrl from "../../logo/youluminglogo.png?url";
 
 export default function SiteFooter() {
   const { t } = useTranslation();
+  const params = useParams();
+  const locale = (normalizeLocale(params.locale) ?? "en") as Locale;
+  const base = `/${locale}`;
   return (
     <footer className="border-t border-border relative overflow-hidden" style={{ background: 'var(--color-bg-secondary)' }}>
       <div className="star-field" />
@@ -30,10 +35,14 @@ export default function SiteFooter() {
             <div className="mb-4 text-sm font-semibold text-text-primary">{t("footer.quickLinks", "快速链接")}</div>
             <ul className="space-y-2 text-sm">
               <li>
-                <a href="/models" className="text-text-secondary hover:text-text-primary transition-colors">{t("nav.models", "车型")}</a>
+                <Link to={`${base}/models/all`} className="text-text-secondary hover:text-text-primary transition-colors">
+                  {t("nav.models", "车型")}
+                </Link>
               </li>
               <li>
-                <a href="/inquiry" className="text-text-secondary hover:text-text-primary transition-colors">{t("nav.inquiry", "获取报价")}</a>
+                <Link to={`${base}/inquiry`} className="text-text-secondary hover:text-text-primary transition-colors">
+                  {t("nav.inquiry", "获取报价")}
+                </Link>
               </li>
               <li>
                 <a href="/about" className="text-text-secondary hover:text-text-primary transition-colors">{t("nav.about", "关于我们")}</a>
@@ -62,9 +71,9 @@ export default function SiteFooter() {
             <div className="mb-4 text-sm font-semibold text-text-primary">{t("footer.contact", "获取报价")}</div>
             <ul className="space-y-2 text-sm">
               <li>
-                <a href="/inquiry" className="text-text-secondary hover:text-text-primary transition-colors">
+                <Link to={`${base}/inquiry`} className="text-text-secondary hover:text-text-primary transition-colors">
                   {t("action.getQuote", "获取报价")}
-                </a>
+                </Link>
               </li>
               <li>
                 <a href="mailto:business@youluming.com" className="text-text-secondary hover:text-text-primary transition-colors">

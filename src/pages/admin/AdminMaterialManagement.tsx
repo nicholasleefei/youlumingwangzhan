@@ -4,12 +4,25 @@ import AdminSeries from "./AdminSeries";
 import AdminModelsJumdata from "./AdminModelsJumdata";
 import AdminModelDetails from "./AdminModelDetails";
 import AdminModelResources from "./AdminModelResources";
+import AdminMaterialOverview from "./AdminMaterialOverview";
 import { pageCardCls, pageTitleCls, pageDescCls, subTabCls, primaryButtonCls } from "@/admin/AdminApp";
+import type { MaterialResourceJump } from "@/pages/admin/materialResourceJump";
 
-type MaterialTab = "brands" | "series" | "models" | "model-details" | "model-resources" | "images" | "videos" | "documents" | "categories";
+type MaterialTab =
+  | "overview"
+  | "brands"
+  | "series"
+  | "models"
+  | "model-details"
+  | "model-resources"
+  | "images"
+  | "videos"
+  | "documents"
+  | "categories";
 
 export default function AdminMaterialManagement() {
-  const [tab, setTab] = useState<MaterialTab>("brands");
+  const [tab, setTab] = useState<MaterialTab>("overview");
+  const [resourceJump, setResourceJump] = useState<MaterialResourceJump | null>(null);
 
   return (
     <div className={pageCardCls() + " p-8"}>
@@ -22,6 +35,13 @@ export default function AdminMaterialManagement() {
 
       <div className="mb-8">
         <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setTab("overview")}
+            className={subTabCls(tab === "overview")}
+          >
+            数据总览
+          </button>
           <button
             type="button"
             onClick={() => setTab("brands")}
@@ -89,11 +109,19 @@ export default function AdminMaterialManagement() {
       </div>
 
       <div>
+        {tab === "overview" ? (
+          <AdminMaterialOverview
+            onGoToResources={(jump) => {
+              setResourceJump(jump);
+              setTab("model-resources");
+            }}
+          />
+        ) : null}
         {tab === "brands" ? <AdminBrands /> : null}
         {tab === "series" ? <AdminSeries /> : null}
         {tab === "models" ? <AdminModelsJumdata /> : null}
         {tab === "model-details" ? <AdminModelDetails /> : null}
-        {tab === "model-resources" ? <AdminModelResources /> : null}
+        {tab === "model-resources" ? <AdminModelResources jump={resourceJump} onJumpConsumed={() => setResourceJump(null)} /> : null}
 
         {tab === "images" ? (
           <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">

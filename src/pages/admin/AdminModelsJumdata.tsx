@@ -160,6 +160,12 @@ export default function AdminModelsJumdata() {
   // 计算是否全选
   const isAllSelected = viewModels.length > 0 && selectedIds.length === viewModels.length;
 
+  useEffect(() => {
+    if (selectedIds.length === 0) return;
+    const idSet = new Set(viewModels.map(m => m.id));
+    setSelectedIds(prev => prev.filter(id => idSet.has(id)));
+  }, [viewModels]);
+
   function isRowDeleted(id: string) {
     return stagedItems.some(it => it.tableName === 'models_jumdata' && it.op === 'delete' && it.id === id);
   }
@@ -387,10 +393,10 @@ export default function AdminModelsJumdata() {
 
   // 批量选择控制
   const handleSelectAll = () => {
-    if (selectedIds.length === dbModels.length) {
+    if (viewModels.length > 0 && selectedIds.length === viewModels.length) {
       handleClearSelection();
     } else {
-      setSelectedIds(dbModels.map(s => s.id));
+      setSelectedIds(viewModels.map(s => s.id));
     }
   };
 
@@ -399,7 +405,7 @@ export default function AdminModelsJumdata() {
   };
 
   const handleSelectId = (id: string) => {
-    setSelectedIds(prev => [...prev, id]);
+    setSelectedIds(prev => (prev.includes(id) ? prev : [...prev, id]));
   };
 
   const handleUnselectId = (id: string) => {
@@ -409,6 +415,7 @@ export default function AdminModelsJumdata() {
   const handleBatchUpdate = async (status: number) => {
     if (selectedIds.length === 0) return;
     for (const id of selectedIds) {
+      if (isRowDeleted(id)) continue;
       stageUpdate(id, 'activity_status', status);
     }
   };
@@ -693,7 +700,7 @@ export default function AdminModelsJumdata() {
                   jm_id: model.id,
                   series_jm_id: series.jm_id,
                   series_id: series.id,
-                  series_name: seriesDb.name,
+                  series_name: seriesDb?.name ?? series.name ?? null,
                   brand_jm_id: brandDb.jm_id,
                   brand_id: brandDb.id,
                   brand_name: brandDb.name,
@@ -726,7 +733,7 @@ export default function AdminModelsJumdata() {
                   const updateData = {
                     series_jm_id: series.jm_id,
                     series_id: series.id,
-                    series_name: seriesDb.name,
+                    series_name: seriesDb?.name ?? series.name ?? null,
                     brand_jm_id: brandDb.jm_id,
                     brand_id: brandDb.id,
                     brand_name: brandDb.name,
@@ -1586,7 +1593,7 @@ export default function AdminModelsJumdata() {
                       type="checkbox"
                       checked={isAllSelected}
                       onChange={(e) => e.target.checked ? handleSelectAll() : handleClearSelection()}
-                      disabled={dbModelsLoading || dbModels.length === 0}
+                      disabled={dbModelsLoading || viewModels.length === 0}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>

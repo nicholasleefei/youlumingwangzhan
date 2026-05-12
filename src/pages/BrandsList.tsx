@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useTranslation } from "react-i18next";
 import { normalizeLocale, type Locale } from "@/i18n/locales";
 import { supabase } from "@/utils/supabaseClient";
-import { listBrands, listModelsBySeriesId, listSeries, type BrandRow, type SeriesRow } from "@/utils/db";
+import { listBrands, listSeries, type BrandRow, type SeriesRow } from "@/utils/db";
 import { Search } from "lucide-react";
 import SafeImage from "@/components/SafeImage";
 import { proxiedImageUrl } from "@/utils/proxyUrl";
@@ -43,7 +43,7 @@ export default function BrandsList() {
   >({});
   const brandsNavRef = useRef<HTMLDivElement>(null);
 
-  const addModelIds = useInquiryDraft((s) => s.addModelIds);
+  const addSeriesIds = useInquiryDraft((s) => s.addSeriesIds);
 
   const HERO_FALLBACK = "/tech-car-bg.jpg";
   const CAROUSEL_INTERVAL_MS = 15000;
@@ -92,9 +92,7 @@ export default function BrandsList() {
     if (!seriesId) return;
     setAddingSeriesId(seriesId);
     try {
-      const models = await listModelsBySeriesId({ seriesId, locale });
-      const ids = (models ?? []).map((m: any) => String(m?.id ?? "")).filter(Boolean);
-      addModelIds(ids);
+      addSeriesIds([seriesId]);
     } catch {
     } finally {
       setAddingSeriesId((prev) => (prev === seriesId ? null : prev));
@@ -298,6 +296,13 @@ export default function BrandsList() {
         return nums.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
       };
 
+      const extractKmFromText = (s: any): number[] => {
+        const txt = typeof s === 'string' ? s : '';
+        const nums = txt.match(/\d{2,4}(?:\.\d+)?(?=\s*(?:km|公里))/gi);
+        if (!nums) return [];
+        return nums.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
+      };
+
       const extractRangeNumbersFromModelDetails = (row: any): number[] => {
         const raw = (row?.raw ?? {}) as any;
         const engine = (raw?.engine ?? {}) as any;
@@ -318,6 +323,9 @@ export default function BrandsList() {
 
         const out: number[] = [];
         for (const c of candidates) out.push(...extractNumbers(c));
+        if (out.length === 0) {
+          out.push(...extractKmFromText(row?.name));
+        }
         return out;
       };
 
@@ -721,9 +729,9 @@ export default function BrandsList() {
                                   <span className="text-zinc-900">{rangeText || "—"}</span>
                                 </div>
 
-                                {Array.isArray(meta.exteriorSwatches) && meta.exteriorSwatches.length > 0 ? (
-                                  <div className="mt-2 flex items-center gap-2">
-                                    <div className="text-sm text-zinc-600">颜色：</div>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <div className="text-sm text-zinc-600">颜色：</div>
+                                  {Array.isArray(meta.exteriorSwatches) && meta.exteriorSwatches.length > 0 ? (
                                     <div className="flex items-center gap-1.5">
                                       {meta.exteriorSwatches.slice(0, 9).map((c: string) => (
                                         <span key={c} className="h-4 w-4 rounded bg-zinc-200" style={{ background: c }} />
@@ -732,8 +740,10 @@ export default function BrandsList() {
                                         <span className="text-xs text-zinc-500">+{meta.exteriorSwatches.length - 9}</span>
                                       ) : null}
                                     </div>
-                                  </div>
-                                ) : null}
+                                  ) : (
+                                    <div className="text-sm text-zinc-400">—</div>
+                                  )}
+                                </div>
                               </div>
                             </Link>
 

@@ -56,8 +56,33 @@ async function postReplaceLogo(
       });
 
       if (!resp.ok) {
-        const err = new Error(`车牌替换服务返回错误: HTTP ${resp.status}`);
+        let serverMsg: string | null = null;
+        let serverCode: string | null = null;
+        try {
+          const cloned = resp.clone();
+          const json = (await cloned.json()) as any;
+          if (json && typeof json === 'object') {
+            serverMsg = typeof json.error === 'string' ? json.error : (typeof json.message === 'string' ? json.message : null);
+            serverCode = typeof json.code === 'string' ? json.code : null;
+          }
+        } catch {
+          try {
+            const text = await resp.clone().text();
+            const t = String(text || '').trim();
+            if (t) serverMsg = t.slice(0, 300);
+          } catch {
+            serverMsg = null;
+          }
+        }
+
+        if (!serverMsg && resp.status === 500) {
+          serverMsg = '可能是替换服务未启动（localhost:5000）或本地代理异常';
+        }
+
+        const suffix = serverMsg ? ` - ${serverMsg}` : '';
+        const err = new Error(`车牌替换服务返回错误: HTTP ${resp.status}${suffix}`);
         (err as any).status = resp.status;
+        if (serverCode) (err as any).code = serverCode;
 
         const shouldRetry = resp.status === 429 || resp.status >= 500;
         if (shouldRetry && attempt < maxRetries) {

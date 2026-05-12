@@ -1,8 +1,8 @@
 import React from "react";
-import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/utils/supabaseClient";
 import { pickActiveHeroPublicSlots, type HeroPublicSlot } from "@/utils/heroAssets";
+import { useInquiryModal } from "@/store/useInquiryModal";
 
 interface HeroBannerProps {
   title?: string;
@@ -14,6 +14,7 @@ export default function HeroBanner({
   subtitle = `Focused on compliant operations and efficient services, we provide stable reliable bulk procurement solutions of Chinese automobiles for global auto dealers and individuals`,
 }: HeroBannerProps) {
   const { t } = useTranslation();
+  const openInquiry = useInquiryModal((s) => s.openModal);
   const [heroSlots, setHeroSlots] = React.useState<HeroPublicSlot[]>([]);
   const [heroIndex, setHeroIndex] = React.useState(0);
 
@@ -99,9 +100,9 @@ export default function HeroBanner({
                   <path d="M5 10H15M15 10L10 5M15 10L10 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </a>
-              <Link to="inquiry" className="btn btn-outline">
+              <button type="button" onClick={openInquiry} className="btn btn-outline">
                 {t("action.getQuote", "Get Quote")}
-              </Link>
+              </button>
             </div>
           </div>
         </div>

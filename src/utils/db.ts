@@ -124,15 +124,22 @@ export type InquiryRow = {
   total_quantity: number | null;
   need_by: string | null;
   note: string | null;
-  status: "new" | "contacted" | "quoting" | "won" | "lost";
+  status: "new" | "contacted" | "qualified" | "quoting" | "quoted" | "negotiating" | "won" | "lost";
   admin_note: string | null;
+  customer_id?: string | null;
+  assigned_admin_id?: string | null;
+  next_follow_up_at?: string | null;
+  priority?: "low" | "normal" | "high" | "urgent";
+  updated_by_admin_id?: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export type InquiryItemInsert = {
   inquiry_id: string;
-  model_id: string;
+  model_id: string | null;
+  series_id?: string | null;
+  item_type?: "model" | "series";
   quantity?: number | null;
   note?: string | null;
 };
@@ -205,6 +212,21 @@ export type ModelListItem = ModelRow & {
   fuel_type: string | null;
   series_name: string | null;
 };
+
+export type InquirySelectedModel = {
+  id: string;
+  display_name: string;
+  brand: string | null;
+  series_name: string | null;
+};
+
+function buildInquiryDisplayName(name: string, yeartype: string | null) {
+  const n = String(name ?? "").trim();
+  const y = String(yeartype ?? "").trim();
+  if (!n) return "";
+  if (!y) return n;
+  return n.includes(y) ? n : `${y} ${n}`;
+}
 
 function pickDisplayName(model: ModelRow, tr: ModelTranslationRow | undefined) {
   return tr?.name ?? model.name;
@@ -336,96 +358,96 @@ export async function listModelsByIds(params: {
   locale: Locale;
 }) {
   const { ids, locale } = params;
+  void locale;
   const uniqIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
-  if (uniqIds.length === 0) return [] as ModelListItem[];
+  if (uniqIds.length === 0) return [] as InquirySelectedModel[];
 
-  const cacheKey = `listModelsByIds_${locale}_${uniqIds.sort().join("|")}_v1`;
+  const cacheKey = `listModelsByIds_inquiry_${uniqIds.slice().sort().join("|")}_v1`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
-    return (cachedData as ModelListItem[]).slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    return (cachedData as InquirySelectedModel[]).slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
 
-  const { data: models, error: modelErr } = await supabase
-    .from("models")
-    .select("*")
-    .in("id", uniqIds)
-    .eq("is_active", true)
-    .in("activity_status", [0])
+  const { data: details, error: detErr } = await supabase
+    .from("model_details")
+    .select("model_id, name, yeartype, brandname, parentname")
+    .in("model_id", uniqIds)
+    .eq("activity_status", 0)
     .limit(5000);
-  if (modelErr) throw modelErr;
+  if (detErr) throw detErr;
 
-  const modelRows = (models ?? []) as ModelRow[];
-  const seriesIds = Array.from(new Set(modelRows.map((m: any) => (m.series_id ? String(m.series_id) : null)).filter(Boolean))) as string[];
-  const brandIds = Array.from(new Set(modelRows.map((m: any) => (m.brand_id ? String(m.brand_id) : null)).filter(Boolean))) as string[];
-  const modelJmIds = modelRows.map((m: any) => m?.jm_id).filter((x: any) => typeof x === "number" && Number.isFinite(x));
-
-  const [{ data: translations, error: trErr }, { data: seriesList, error: seriesErr }, { data: brands, error: brandErr }] = await Promise.all([
-    supabase.from("model_translations").select("*").eq("locale", locale).in("model_id", uniqIds),
-    seriesIds.length > 0 ? supabase.from("series").select("id, name, fullname").in("id", seriesIds) : Promise.resolve({ data: [], error: null } as any),
-    brandIds.length > 0 ? supabase.from("brands").select("id, name").in("id", brandIds) : Promise.resolve({ data: [], error: null } as any),
-  ]);
-  if (trErr) throw trErr;
-  if (seriesErr) throw seriesErr;
-  if (brandErr) throw brandErr;
-
-  const { data: images, error: imgErr } =
-    modelJmIds.length > 0
-      ? await supabase
-          .from("car_pictures")
-          .select("model_jm_id, image_url, sort_order")
-          .eq("category", "official")
-          .in("model_jm_id", modelJmIds)
-          .order("sort_order", { ascending: true })
-      : ({ data: [], error: null } as any);
-  if (imgErr) throw imgErr;
-
-  const trMap = new Map<string, ModelTranslationRow>();
-  (translations ?? []).forEach((t: any) => trMap.set(String(t.model_id), t as ModelTranslationRow));
-
-  const seriesNameMap = new Map<string, string>();
-  (seriesList ?? []).forEach((s: any) => {
-    const id = String(s.id || "");
+  const byId = new Map<string, any>();
+  (details ?? []).forEach((r: any) => {
+    const id = String(r?.model_id ?? "").trim();
     if (!id) return;
-    seriesNameMap.set(id, String(s.fullname || s.name || "").trim());
+    if (byId.has(id)) return;
+    byId.set(id, r);
   });
 
-  const brandNameMap = new Map<string, string>();
-  (brands ?? []).forEach((b: any) => {
-    const id = String(b.id || "");
-    if (!id) return;
-    brandNameMap.set(id, String(b.name || "").trim());
-  });
+  const missingIds = uniqIds.filter((id) => !byId.has(id));
+  if (missingIds.length > 0) {
+    const { data: jmRows, error: jmErr } = await supabase
+      .from("models_jumdata")
+      .select("id, name, brand_name, series_name")
+      .in("id", missingIds)
+      .eq("activity_status", 0)
+      .limit(5000);
+    if (jmErr) throw jmErr;
+    (jmRows ?? []).forEach((r: any) => {
+      const id = String(r?.id ?? "").trim();
+      if (!id) return;
+      if (byId.has(id)) return;
+      byId.set(id, {
+        model_id: id,
+        name: r?.name ?? null,
+        yeartype: null,
+        brandname: r?.brand_name ?? null,
+        parentname: r?.series_name ?? null,
+      });
+    });
+  }
 
-  const coverMap = new Map<number, string>();
-  (images ?? []).forEach((img: any) => {
-    const mid = typeof img?.model_jm_id === "number" ? img.model_jm_id : null;
-    const url = typeof img?.image_url === "string" ? img.image_url : null;
-    if (!mid || !url) return;
-    if (!coverMap.has(mid)) coverMap.set(mid, url);
-  });
-
-  const items: ModelListItem[] = modelRows.map((m: any) => {
-    const tr = trMap.get(String(m.id));
-    const seriesName = m.series_id ? (seriesNameMap.get(String(m.series_id)) ?? null) : null;
-    const brandName = m.brand_id ? (brandNameMap.get(String(m.brand_id)) ?? m.brand ?? null) : (m.brand ?? null);
-
-    const jmExterior = Array.isArray(m.exterior_images) ? m.exterior_images.filter((u: any) => typeof u === "string" && u.trim()) : [];
-    const jumeFallback = (jmExterior[0] as string | undefined) ?? null;
-
-    return {
-      ...m,
-      display_name: pickDisplayName(m, tr),
-      summary: (tr as any)?.summary ?? null,
-      cover_image: coverMap.get(m.jm_id) ?? jumeFallback,
-      fuel_type: m.energy_type,
-      series_name: seriesName,
-      brand: brandName,
-    } as ModelListItem;
-  });
+  const items: InquirySelectedModel[] = uniqIds
+    .map((id) => {
+      const r = byId.get(id);
+      if (!r) return null;
+      return {
+        id,
+        display_name: buildInquiryDisplayName(String(r?.name ?? ""), r?.yeartype ?? null),
+        brand: r?.brandname ? String(r.brandname) : null,
+        series_name: r?.parentname ? String(r.parentname) : null,
+      };
+    })
+    .filter(Boolean) as InquirySelectedModel[];
 
   setCachedData(cacheKey, items);
+  const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
+  return items.slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
 
+export async function listSeriesByIds(params: { ids: string[] }) {
+  const { ids } = params;
+  const uniqIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
+  if (uniqIds.length === 0) return [] as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>;
+
+  const cacheKey = `listSeriesByIds_inquiry_${uniqIds.slice().sort().join("|")}_v1`;
+  const cachedData = getCachedData(cacheKey);
+  if (cachedData) {
+    const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
+    return (cachedData as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>).slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  }
+
+  const { data, error } = await supabase
+    .from("series")
+    .select("id, name, fullname, brand_name")
+    .in("id", uniqIds)
+    .eq("activity_status", 0)
+    .limit(5000);
+  if (error) throw error;
+
+  const items = (data ?? []) as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>;
+  setCachedData(cacheKey, items);
   const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
   return items.slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
@@ -494,7 +516,10 @@ export async function getModelBySlug(params: { slug: string; locale: Locale }) {
 
 export async function createInquiry(params: {
   inquiry: InquiryInsert;
-  items: { model_id: string; quantity?: number | null; note?: string | null }[];
+  items: Array<
+    | { item_type?: "model"; model_id: string; quantity?: number | null; note?: string | null }
+    | { item_type: "series"; series_id: string; quantity?: number | null; note?: string | null }
+  >;
 }) {
   const { inquiry, items } = params;
 
@@ -506,12 +531,33 @@ export async function createInquiry(params: {
 
   if (insErr) throw insErr;
 
-  const insertItems: InquiryItemInsert[] = items.map((it) => ({
-    inquiry_id: inserted.id,
-    model_id: it.model_id,
-    quantity: it.quantity ?? null,
-    note: it.note ?? null,
-  }));
+  const insertItems: InquiryItemInsert[] = items
+    .map((it) => {
+      if ((it as any)?.item_type === "series") {
+        const sid = String((it as any)?.series_id ?? "").trim();
+        if (!sid) return null;
+        return {
+          inquiry_id: inserted.id,
+          item_type: "series",
+          series_id: sid,
+          model_id: null,
+          quantity: (it as any).quantity ?? null,
+          note: (it as any).note ?? null,
+        } satisfies InquiryItemInsert;
+      }
+
+      const mid = String((it as any)?.model_id ?? "").trim();
+      if (!mid) return null;
+      return {
+        inquiry_id: inserted.id,
+        item_type: "model",
+        series_id: null,
+        model_id: mid,
+        quantity: (it as any).quantity ?? null,
+        note: (it as any).note ?? null,
+      } satisfies InquiryItemInsert;
+    })
+    .filter(Boolean) as InquiryItemInsert[];
 
   if (insertItems.length > 0) {
     const { error: itemsErr } = await supabase.from("inquiry_items").insert(insertItems);
@@ -662,7 +708,7 @@ export async function listModelsBySeriesId(params: {
   locale: Locale;
 }) {
   const { seriesId, locale } = params;
-  const cacheKey = `listModelsBySeriesId_${seriesId}_${locale}_v4`;
+  const cacheKey = `listModelsBySeriesId_${seriesId}_${locale}_v5`;
 
   // 检查缓存
   const cachedData = getCachedData(cacheKey);
@@ -671,87 +717,22 @@ export async function listModelsBySeriesId(params: {
   }
 
   try {
-    // 首先获取车系信息，包括关联的品牌
-    const { data: seriesData, error: seriesError } = await supabase
-      .from("series")
-      .select("*, brands(*)")
-      .eq("id", seriesId)
-      .maybeSingle();
+    const { data: rows, error } = await supabase
+      .from("models_jumdata")
+      .select("id")
+      .eq("series_id", seriesId)
+      .eq("activity_status", 0)
+      .order("updated_at", { ascending: false })
+      .limit(5000);
 
-    if (seriesError) {
-      return [];
-    }
+    if (error) return [];
 
-    if (!seriesData) {
-      return [];
-    }
+    const ids = (rows ?? []).map((r: any) => String(r?.id ?? "").trim()).filter(Boolean);
+    const items = await listModelsByIds({ ids, locale });
 
-    const brandName = seriesData.brands?.name;
-
-    // 查询车型，按品牌名称匹配
-    let { data: models, error: modelError } = await supabase
-      .from("models")
-      .select("*")
-      .eq("is_active", true)
-      .order("is_hot", { ascending: false })
-      .order("updated_at", { ascending: false });
-
-    if (modelError) {
-      models = [];
-    } else {
-      // 过滤出与当前品牌匹配的车型
-      if (brandName && models) {
-        models = models.filter(m => {
-          const modelBrand = m.brand?.toLowerCase().trim();
-          const targetBrand = brandName.toLowerCase().trim();
-          const match = modelBrand?.includes(targetBrand) || targetBrand.includes(modelBrand);
-          return match;
-        });
-      }
-    }
-
-    const modelJmIds = (models ?? []).map((m: any) => m?.jm_id).filter((x: any) => typeof x === "number" && Number.isFinite(x));
-    const [{ data: translations, error: trErr }, { data: images, error: imgErr }] = await Promise.all([
-      supabase.from("model_translations").select("*").eq("locale", locale),
-      modelJmIds.length > 0
-        ? supabase
-            .from("car_pictures")
-            .select("model_jm_id, image_url, sort_order")
-            .eq("category", "official")
-            .in("model_jm_id", modelJmIds)
-            .order("sort_order", { ascending: true })
-        : Promise.resolve({ data: [], error: null } as any),
-    ]);
-
-    const trMap = new Map<string, ModelTranslationRow>();
-    (translations ?? []).forEach((t) => trMap.set(t.model_id, t));
-
-    const coverMap = new Map<number, string>();
-    (images ?? []).forEach((img: any) => {
-      const mid = typeof img?.model_jm_id === "number" ? img.model_jm_id : null;
-      const url = typeof img?.image_url === "string" ? img.image_url : null;
-      if (!mid || !url) return;
-      if (!coverMap.has(mid)) coverMap.set(mid, url);
-    });
-
-    const items: ModelListItem[] = (models ?? []).map((m: any) => {
-      const tr = trMap.get(m.id);
-      const jmExterior = Array.isArray(m.exterior_images) ? m.exterior_images.filter((u: any) => typeof u === "string" && u.trim()) : [];
-      const jumeFallback = (jmExterior[0] as string | undefined) ?? null;
-      return {
-        ...m,
-        display_name: pickDisplayName(m, tr),
-        summary: tr?.summary ?? null,
-        cover_image: coverMap.get(m.jm_id) ?? jumeFallback,
-        fuel_type: m.energy_type ?? null,
-      };
-    });
-
-    // 缓存结果
     setCachedData(cacheKey, items);
     return items;
-  } catch (error) {
-    // 出错时返回空数组，避免页面崩溃
+  } catch {
     return [];
   }
 }

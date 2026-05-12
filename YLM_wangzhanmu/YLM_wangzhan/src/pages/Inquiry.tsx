@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { normalizeLocale, type Locale } from "@/i18n/locales";
-import { createInquiry, listModels, type ModelListItem } from "@/utils/db";
+import { createInquiry, listModelsByIds, type ModelListItem } from "@/utils/db";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
 
 type FormState = {
@@ -50,8 +50,16 @@ export default function Inquiry() {
 
   useEffect(() => {
     let active = true;
+    if (selectedModelIds.length === 0) {
+      setModels([]);
+      setLoadingModels(false);
+      return () => {
+        active = false;
+      };
+    }
+
     setLoadingModels(true);
-    listModels({ locale, onlyHot: false })
+    listModelsByIds({ ids: selectedModelIds, locale })
       .then((data) => {
         if (!active) return;
         setModels(data);
@@ -63,12 +71,9 @@ export default function Inquiry() {
     return () => {
       active = false;
     };
-  }, [locale]);
+  }, [locale, selectedModelIds]);
 
-  const selectedModels = useMemo(
-    () => models.filter((m) => selectedModelIds.includes(m.id)),
-    [models, selectedModelIds]
-  );
+  const selectedModels = useMemo(() => models.filter((m) => selectedModelIds.includes(m.id)), [models, selectedModelIds]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -157,7 +162,7 @@ export default function Inquiry() {
                 <div key={m.id} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-800">{m.display_name}</div>
-                    <div className="truncate text-xs text-zinc-500">{m.brand ?? ""}</div>
+                    <div className="truncate text-xs text-zinc-500">{[m.brand, m.series_name].filter(Boolean).join(" · ")}</div>
                   </div>
                   <button
                     type="button"

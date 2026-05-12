@@ -181,6 +181,7 @@ export type ModelListItem = ModelRow & {
   summary: string | null;
   cover_image: string | null;
   fuel_type: string | null;
+  series_name: string | null;
 };
 
 function pickDisplayName(model: ModelRow, tr: ModelTranslationRow | undefined) {
@@ -213,7 +214,7 @@ export async function listModels(params: {
   onlyHot?: boolean;
 }) {
   const { locale, search, onlyHot } = params;
-  const cacheKey = `listModels_${locale}_${search || ''}_${onlyHot || false}`;
+  const cacheKey = `listModels_${locale}_${search || ''}_${onlyHot || false}_v2`;
 
   // 检查缓存
   const cachedData = getCachedData(cacheKey);
@@ -254,20 +255,185 @@ export async function listModels(params: {
     }
   });
 
-  const items: ModelListItem[] = (models ?? []).map((m) => {
+  const modelRows = (models ?? []) as ModelRow[];
+
+  const missingSeriesIds = modelRows
+    .filter((m) => !m.series_id)
+    .map((m) => String(m.id || "").trim())
+    .filter(Boolean);
+  const uniqMissingSeriesIds = Array.from(new Set(missingSeriesIds));
+
+  const { data: jmMeta, error: jmMetaErr } =
+    uniqMissingSeriesIds.length > 0
+      ? await supabase
+          .from("models_jumdata")
+          .select("id, series_id")
+          .in("id", uniqMissingSeriesIds)
+          .limit(5000)
+      : ({ data: [], error: null } as any);
+
+  if (jmMetaErr) throw jmMetaErr;
+
+  const jmSeriesMap = new Map<string, string | null>();
+  (jmMeta ?? []).forEach((r: any) => {
+    const id = String(r?.id ?? "").trim();
+    if (!id) return;
+    jmSeriesMap.set(id, r?.series_id ? String(r.series_id).trim() : null);
+  });
+
+  const seriesIds = Array.from(
+    new Set(
+      modelRows
+        .map((m) => {
+          const sid = m.series_id ?? jmSeriesMap.get(String(m.id || "").trim()) ?? null;
+          return sid ? String(sid).trim() : null;
+        })
+        .filter(Boolean)
+    )
+  ) as string[];
+
+  const { data: seriesList, error: seriesErr } =
+    seriesIds.length > 0
+      ? await supabase.from("series").select("id, name, fullname").in("id", seriesIds)
+      : ({ data: [], error: null } as any);
+  if (seriesErr) throw seriesErr;
+
+  const seriesNameMap = new Map<string, string>();
+  (seriesList ?? []).forEach((s: any) => {
+    const id = String(s?.id ?? "").trim();
+    if (!id) return;
+    const name = String(s?.fullname ?? s?.name ?? "").trim();
+    if (!name) return;
+    seriesNameMap.set(id, name);
+  });
+
+  const items: ModelListItem[] = modelRows.map((m) => {
     const tr = trMap.get(m.id);
+    const effectiveSeriesId = m.series_id ?? jmSeriesMap.get(String(m.id || "").trim()) ?? null;
+    const seriesName = effectiveSeriesId ? seriesNameMap.get(String(effectiveSeriesId).trim()) ?? null : null;
     return {
       ...m,
       display_name: pickDisplayName(m, tr),
       summary: tr?.summary ?? null,
       cover_image: coverMap.get(m.id) ?? null,
       fuel_type: m.energy_type,
+      series_name: seriesName,
     };
   });
 
   // 缓存结果
   setCachedData(cacheKey, items);
   return items;
+}
+
+export async function listModelsByIds(params: {
+  ids: string[];
+  locale: Locale;
+}) {
+  const { ids, locale } = params;
+  const uniqIds = Array.from(new Set((ids ?? []).map((x) => String(x || "").trim()).filter(Boolean)));
+  if (uniqIds.length === 0) return [] as ModelListItem[];
+
+  const cacheKey = `listModelsByIds_${locale}_${uniqIds.slice().sort().join("|")}_v1`;
+  const cachedData = getCachedData(cacheKey);
+  if (cachedData) {
+    const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
+    return (cachedData as ModelListItem[]).slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  }
+
+  const { data: models, error: modelErr } = await supabase.from("models").select("*").in("id", uniqIds).eq("is_active", true).limit(5000);
+  if (modelErr) throw modelErr;
+  const modelRows = (models ?? []) as ModelRow[];
+
+  const [{ data: translations, error: trErr }, { data: images, error: imgErr }] = await Promise.all([
+    supabase.from("model_translations").select("*").eq("locale", locale).in("model_id", uniqIds),
+    supabase.from("model_images").select("*").in("model_id", uniqIds).order("sort_order", { ascending: true }),
+  ]);
+  if (trErr) throw trErr;
+  if (imgErr) throw imgErr;
+
+  const trMap = new Map<string, ModelTranslationRow>();
+  (translations ?? []).forEach((t) => trMap.set(t.model_id, t as ModelTranslationRow));
+
+  const coverMap = new Map<string, string>();
+  (images ?? []).forEach((img: any) => {
+    const modelId = String(img?.model_id ?? "").trim();
+    const path = typeof img?.path === "string" ? img.path : null;
+    if (!modelId || !path) return;
+    const existing = coverMap.get(modelId);
+    if (!existing) {
+      coverMap.set(modelId, path);
+    } else if (img?.is_cover) {
+      coverMap.set(modelId, path);
+    }
+  });
+
+  const missingSeriesIds = modelRows
+    .filter((m) => !m.series_id)
+    .map((m) => String(m.id || "").trim())
+    .filter(Boolean);
+  const uniqMissingSeriesIds = Array.from(new Set(missingSeriesIds));
+
+  const { data: jmMeta, error: jmMetaErr } =
+    uniqMissingSeriesIds.length > 0
+      ? await supabase
+          .from("models_jumdata")
+          .select("id, series_id")
+          .in("id", uniqMissingSeriesIds)
+          .limit(5000)
+      : ({ data: [], error: null } as any);
+  if (jmMetaErr) throw jmMetaErr;
+
+  const jmSeriesMap = new Map<string, string | null>();
+  (jmMeta ?? []).forEach((r: any) => {
+    const id = String(r?.id ?? "").trim();
+    if (!id) return;
+    jmSeriesMap.set(id, r?.series_id ? String(r.series_id).trim() : null);
+  });
+
+  const seriesIds = Array.from(
+    new Set(
+      modelRows
+        .map((m) => {
+          const sid = m.series_id ?? jmSeriesMap.get(String(m.id || "").trim()) ?? null;
+          return sid ? String(sid).trim() : null;
+        })
+        .filter(Boolean)
+    )
+  ) as string[];
+
+  const { data: seriesList, error: seriesErr } =
+    seriesIds.length > 0
+      ? await supabase.from("series").select("id, name, fullname").in("id", seriesIds)
+      : ({ data: [], error: null } as any);
+  if (seriesErr) throw seriesErr;
+
+  const seriesNameMap = new Map<string, string>();
+  (seriesList ?? []).forEach((s: any) => {
+    const id = String(s?.id ?? "").trim();
+    if (!id) return;
+    const name = String(s?.fullname ?? s?.name ?? "").trim();
+    if (!name) return;
+    seriesNameMap.set(id, name);
+  });
+
+  const items: ModelListItem[] = modelRows.map((m) => {
+    const tr = trMap.get(String(m.id));
+    const effectiveSeriesId = m.series_id ?? jmSeriesMap.get(String(m.id || "").trim()) ?? null;
+    const seriesName = effectiveSeriesId ? seriesNameMap.get(String(effectiveSeriesId).trim()) ?? null : null;
+    return {
+      ...m,
+      display_name: pickDisplayName(m, tr),
+      summary: tr?.summary ?? null,
+      cover_image: coverMap.get(String(m.id)) ?? null,
+      fuel_type: m.energy_type,
+      series_name: seriesName,
+    };
+  });
+
+  setCachedData(cacheKey, items);
+  const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
+  return items.slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
 export async function getModelBySlug(params: { slug: string; locale: Locale }) {

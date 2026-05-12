@@ -104,10 +104,10 @@ export default function AdminSeries() {
 
   // 批量选择控制
   const handleSelectAll = () => {
-    if (selectedIds.length === dbSeries.length) {
+    if (viewSeries.length > 0 && selectedIds.length === viewSeries.length) {
       handleClearSelection();
     } else {
-      setSelectedIds(dbSeries.map(s => s.id));
+      setSelectedIds(viewSeries.map(s => s.id));
     }
   };
 
@@ -116,7 +116,7 @@ export default function AdminSeries() {
   };
 
   const handleSelectId = (id: string) => {
-    setSelectedIds(prev => [...prev, id]);
+    setSelectedIds(prev => (prev.includes(id) ? prev : [...prev, id]));
   };
 
   const handleUnselectId = (id: string) => {
@@ -169,10 +169,13 @@ export default function AdminSeries() {
     }
   };
 
-  // 计算是否全选
-  const isAllSelected = dbSeries.length > 0 && selectedIds.length === dbSeries.length;
-
   const isAllSelectedView = viewSeries.length > 0 && selectedIds.length === viewSeries.length;
+
+  useEffect(() => {
+    if (selectedIds.length === 0) return;
+    const idSet = new Set(viewSeries.map(s => s.id));
+    setSelectedIds(prev => prev.filter(id => idSet.has(id)));
+  }, [viewSeries]);
 
   function isRowDeleted(id: string) {
     return stagedItems.some(it => it.tableName === 'series' && it.op === 'delete' && it.id === id);
@@ -975,6 +978,7 @@ export default function AdminSeries() {
             onBatchUpdate={async (status) => {
               if (selectedIds.length === 0) return;
               for (const id of selectedIds) {
+                if (isRowDeleted(id)) continue;
                 stageUpdate(id, 'activity_status', status);
               }
             }}

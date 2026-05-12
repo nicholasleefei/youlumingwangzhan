@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\" 2)",
+      "Bash(gh auth *)",
+      "Bash(powershell.exe *)",
+      "Read(//c/Users/Administrator/AppData/Local/Microsoft/WinGet/**)",
+      "Read(//c/Users/Administrator/AppData/Local/Programs//**)",
+      "Read(//c/ProgramData//**)",
+      "Read(//c/Program Files/**)",
+      "Bash(winget list *)",
+      "Read(//d/tmp/**)",
+      "Bash(curl -sL \"https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_windows_amd64.zip\" -o gh.zip)",
+      "Bash(ls /tmp/gh_extract/)",
+      "Bash(npm --version)",
+      "Bash($GH_PATH auth *)",
+      "Bash(HTTPS_PROXY=\"http://v2.banzhou.top:443\" HTTP_PROXY=\"http://v2.banzhou.top:443\" $GH_PATH auth *)",
+      "Bash(curl -x \"http://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
+      "Bash(curl -x \"https://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
+      "Bash(curl -x \"socks5://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
+      "Bash(curl -x \"socks5h://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)"
+    ]
+  }
+}

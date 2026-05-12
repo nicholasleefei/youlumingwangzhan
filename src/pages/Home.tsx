@@ -9,6 +9,7 @@ import HeroBanner from '@/components/HeroBanner';
 import SafeImage from '@/components/SafeImage';
 import { proxiedImageUrl } from '@/utils/proxyUrl';
 import { useInquiryDraft } from '@/store/useInquiryDraft';
+import { useInquiryModal } from '@/store/useInquiryModal';
 import logoUrl from '../../logo/youluminglogo.png?url';
 
 type CountrySale = { countryName: string; salesVolume: number };
@@ -61,6 +62,14 @@ function normUrl(v: any): string | null {
   return s ? s : null;
 }
 
+function maybeProxyImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) {
+    return proxiedImageUrl(url) || url;
+  }
+  return url;
+}
+
 function extractNumbers(v: any): number[] {
   if (typeof v === 'number' && Number.isFinite(v) && v > 0) return [v];
   const txt = typeof v === 'string' ? v : '';
@@ -69,7 +78,14 @@ function extractNumbers(v: any): number[] {
   return nums.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
 }
 
-function pickRangeKmFromRaw(raw: any): { min: number; max: number } | null {
+function extractKmFromText(v: any): number[] {
+  const s = typeof v === 'string' ? v : '';
+  const nums = s.match(/\d{2,4}(?:\.\d+)?(?=\s*(?:km|公里))/gi);
+  if (!nums) return [];
+  return nums.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
+}
+
+function pickRangeKmFromRaw(raw: any, fallbackText?: string | null): { min: number; max: number } | null {
   const engine = (raw?.engine ?? {}) as any;
   const electricmotor = (raw?.electricmotor ?? {}) as any;
   const candidates = [
@@ -87,6 +103,9 @@ function pickRangeKmFromRaw(raw: any): { min: number; max: number } | null {
 
   const values: number[] = [];
   for (const c of candidates) values.push(...extractNumbers(c));
+  if (values.length === 0 && fallbackText) {
+    values.push(...extractKmFromText(fallbackText));
+  }
   if (values.length === 0) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -105,6 +124,7 @@ export default function Home() {
   const [hotVisible, setHotVisible] = useState<Record<string, boolean>>({});
   const selectedModelIds = useInquiryDraft((s) => s.selectedModelIds);
   const toggleModelId = useInquiryDraft((s) => s.toggleModelId);
+  const openInquiry = useInquiryModal((s) => s.openModal);
 
   // Fetch country sales data
   useEffect(() => {
@@ -157,11 +177,13 @@ export default function Home() {
 
         const { data: brandsData } = await supabase
           .from('brands')
-          .select('id, jm_id, activity_status, logo_url, name, fullname');
+          .select('id, jm_id, activity_status, logo_url, name, fullname')
+          .eq('activity_status', 0);
 
         const { data: seriesData } = await supabase
           .from('series')
-          .select('id, jm_id, logo_url, activity_status, name, fullname');
+          .select('id, jm_id, logo_url, activity_status, name, fullname')
+          .eq('activity_status', 0);
 
         const brandStatusMap = new Map<string, number>();
         (brandsData ?? []).forEach((b) => brandStatusMap.set(b.id, b.activity_status ?? 0));
@@ -249,7 +271,9 @@ export default function Home() {
           const modelId = String(d.model_id);
           const raw = (d.raw ?? {}) as any;
 
-          const range = pickRangeKmFromRaw(raw);
+          const modelLogoUrl = normUrl(d.logo_url);
+
+          const range = pickRangeKmFromRaw(raw, String(d.name ?? ''));
           const rangeText = range
             ? range.min === range.max
               ? `${Math.round(range.max)}km`
@@ -264,13 +288,13 @@ export default function Home() {
           const seriesJmId = seriesId ? (seriesIdToJmId.get(seriesId) ?? null) : null;
           const seriesOfficialCover = seriesJmId ? (seriesOfficialCoverByJmId.get(seriesJmId) ?? null) : null;
           const seriesJumeCover = seriesId ? (seriesIdToJumeLogo.get(seriesId) ?? null) : null;
-          const cover = normUrl(d.hot_card_cover_url) || seriesOfficialCover || seriesJumeCover || d.logo_url || null;
+          const cover = normUrl(d.hot_card_cover_url) || seriesOfficialCover || seriesJumeCover || modelLogoUrl || null;
 
           return {
           id: String(d.id),
           model_id: modelId,
           name: String(d.name ?? ''),
-          logo_url: d.logo_url ?? null,
+          logo_url: modelLogoUrl,
           yeartype: d.yeartype ?? null,
           price: d.price ?? null,
           sizetype: d.sizetype ?? null,
@@ -378,6 +402,11 @@ export default function Home() {
                   const brandSeries = [m.brandname, m.series_name || m.parentname].filter(Boolean).join(' · ') || 'HOT MODEL';
                   const hotTitle = buildHotTitle(m.name, m.yeartype);
                   const inInquiry = selectedModelIds.includes(m.model_id);
+                  const brandInitial = String(m.brandname || 'B').slice(0, 1).toUpperCase();
+                  const iconSrc =
+                    maybeProxyImageUrl(m.brand_logo_url) ||
+                    maybeProxyImageUrl(m.logo_url) ||
+                    logoUrl;
                   const panelBg = reverse
                     ? 'bg-[linear-gradient(180deg,#fff7ed_0%,#fff_55%,#f8fafc_100%)]'
                     : 'bg-[linear-gradient(180deg,#f8fafc_0%,#fff_55%,#fff7ed_100%)]';
@@ -418,18 +447,17 @@ export default function Home() {
                               <div className="flex items-center justify-between gap-4">
                                 <div className="flex items-center gap-3 min-w-0">
                                   <div className="h-11 w-11 shrink-0 rounded-xl border border-black/10 bg-white/70 backdrop-blur flex items-center justify-center overflow-hidden">
-                                    {m.brand_logo_url ? (
-                                      <SafeImage
-                                        src={proxiedImageUrl(m.brand_logo_url) || undefined}
-                                        alt={String(m.brandname || 'brand')}
-                                        className="h-8 w-8 object-contain"
-                                        usePlaceholder
-                                      />
-                                    ) : (
-                                      <div className="text-sm font-black text-black/60">
-                                        {String(m.brandname || 'B').slice(0, 1).toUpperCase()}
-                                      </div>
-                                    )}
+                                    <SafeImage
+                                      src={iconSrc}
+                                      alt={String(m.brandname || 'brand')}
+                                      className="h-8 w-8 object-contain"
+                                      usePlaceholder
+                                      fallback={
+                                        <div className="text-sm font-black text-black/60">
+                                          {brandInitial}
+                                        </div>
+                                      }
+                                    />
                                   </div>
                                   <div className="min-w-0">
                                     <div className="text-[11px] font-semibold tracking-[0.22em] text-black/50 uppercase truncate">
@@ -484,7 +512,10 @@ export default function Home() {
                                 ) : null}
                                 <button
                                   type="button"
-                                  onClick={() => toggleModelId(m.model_id)}
+                                  onClick={() => {
+                                    if (!inInquiry) toggleModelId(m.model_id);
+                                    openInquiry();
+                                  }}
                                   className={
                                     inInquiry
                                       ? 'inline-flex items-center justify-center rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800'
@@ -580,15 +611,16 @@ export default function Home() {
                   <p className="text-xl text-text-secondary mb-6 leading-relaxed max-w-xl">
                     {t('contact.description', '预约 30 分钟的免费咨询。我们将分析您的需求，并为您提供最佳的汽车采购方案。')}
                   </p>
-                  <Link
-                    to={`/${locale}/inquiry`}
+                  <button
+                    type="button"
+                    onClick={openInquiry}
                     className="btn-inquiry inline-flex items-center gap-2"
                   >
                     <span>{t('action.getQuote', '获取报价')}</span>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
-                  </Link>
+                  </button>
                 </div>
               </div>
             </div>

@@ -10,8 +10,9 @@ import { useBrandVrBatch } from "@/store/useBrandVrBatch";
 import { asyncPool } from "@/utils/asyncPool";
 import { normalizeSeriesVrConfig } from "@/utils/seriesVrNormalize";
 import { type InteriorVrPosition } from "@/utils/interiorVrVisibility";
+import type { MaterialResourceJump, MaterialResourceSection } from "@/pages/admin/materialResourceJump";
 
-type ResourceSection = "series-vr" | "model-images" | "overview";
+type ResourceSection = MaterialResourceSection;
 type VrCategory = "exterior" | "interior";
 type InteriorPosition = "driver" | "passenger" | "rear" | "third_row" | "trunk";
 
@@ -297,7 +298,7 @@ function PositionGroupCard({ group, onChangePosition, onDeleteImage }: { group: 
   );
 }
 
-export default function AdminModelResources() {
+export default function AdminModelResources(props: { jump?: MaterialResourceJump | null; onJumpConsumed?: () => void }) {
   const [section, setSection] = useState<ResourceSection>("series-vr");
   const [dbBrands, setDbBrands] = useState<DbBrand[]>([]);
   const [dbSeries, setDbSeries] = useState<DbSeries[]>([]);
@@ -427,6 +428,45 @@ export default function AdminModelResources() {
       setDbModels([]);
     }
   }, [selectedSeriesId]);
+
+  useEffect(() => {
+    const j = props.jump;
+    if (!j) return;
+    setSection(j.section);
+    setSelectedBrandId(j.brandJmId);
+  }, [props.jump]);
+
+  useEffect(() => {
+    const j = props.jump;
+    if (!j) return;
+    if (j.section !== "series-vr" && j.section !== "model-images") return;
+    if (selectedBrandId !== j.brandJmId) return;
+    if (!j.seriesJmId || !j.seriesName) return;
+    if (selectedSeriesId === j.seriesJmId && section === j.section) return;
+    handleSeriesSelect(j.seriesJmId, j.seriesName);
+  }, [props.jump, section, selectedBrandId, selectedSeriesId]);
+
+  useEffect(() => {
+    const j = props.jump;
+    if (!j) return;
+    if (j.section !== "model-images") return;
+    if (selectedBrandId !== j.brandJmId) return;
+    if (!j.seriesJmId || !j.modelJmId || !j.modelName) return;
+    if (selectedSeriesId !== j.seriesJmId) return;
+    if (selectedModelId === j.modelJmId) return;
+    handleModelSelect(j.modelJmId, j.modelName);
+    props.onJumpConsumed?.();
+  }, [props.jump, selectedBrandId, selectedModelId, selectedSeriesId]);
+
+  useEffect(() => {
+    const j = props.jump;
+    if (!j) return;
+    if (j.section !== "series-vr") return;
+    if (selectedBrandId !== j.brandJmId) return;
+    if (!j.seriesJmId) return;
+    if (selectedSeriesId !== j.seriesJmId) return;
+    props.onJumpConsumed?.();
+  }, [props.jump, selectedBrandId, selectedSeriesId]);
 
   useEffect(() => {
     void refreshPlateLogoAssets();
