@@ -7,24 +7,13 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies & Build
 node_modules
 dist
 dist-ssr
 *.local
-.trae/figma-cache
-.trae/
 
-# Large files and data (not needed for website)
-plate_logo_service/
-backup_assets/
-CarCG/
-YLM_wangzhanmu/
-qczj/.tmp_run_out/
-reports/
-*.pt
-*.rar
-
-# Editor directories and files
+# IDE / Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -34,3 +23,21 @@ reports/
 *.njsproj
 *.sln
 *.sw?
+.trae/
+.agents/
+.kiro/
+.claude/
+
+# Unused project dirs
+plate_logo_service/
+backup_assets/
+CarCG/
+YLM_wangzhanmu/
+qczj/
+reports/
+migrations/
+*.pt
+*.rar
+
+# Env
+.env
