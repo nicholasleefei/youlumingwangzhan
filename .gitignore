@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 .trae/figma-cache
+.trae/
+
+# Large files and data (not needed for website)
+plate_logo_service/
+backup_assets/
+CarCG/
+YLM_wangzhanmu/
+qczj/.tmp_run_out/
+reports/
+*.pt
+*.rar
 
 # Editor directories and files
 .vscode/*

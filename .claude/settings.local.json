@@ -18,7 +18,14 @@
       "Bash(curl -x \"http://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
       "Bash(curl -x \"https://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
       "Bash(curl -x \"socks5://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
-      "Bash(curl -x \"socks5h://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)"
+      "Bash(curl -x \"socks5h://v2.banzhou.top:443\" -sI \"https://github.com\" -o /dev/null -w \"%{http_code}\" --connect-timeout 10)",
+      "PowerShell(git remote *)",
+      "PowerShell($total = \\(Get-ChildItem -Path . -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum\\).Sum; Write-Host \"Total size: $\\([math]::Round\\($total / 1GB, 2\\)\\) GB, File count: $\\(\\(Get-ChildItem -Path . -Recurse -File -ErrorAction SilentlyContinue\\).Count\\)\")",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($gitSize = \\(Get-ChildItem -Path \".git\" -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum\\).Sum / 1MB; Write-Host \".git folder: $\\([math]::Round\\($gitSize, 2\\)\\) MB\")",
+      "PowerShell(if \\(Test-Path \"plate_logo_service\"\\) { Get-ChildItem \"plate_logo_service\" -Recurse | Select-Object -First 5 FullName }; $exists = Test-Path \"plate_logo_service\"; Write-Host \"Exists: $exists\")",
+      "PowerShell(if \\(Test-Path \"qczj\"\\) { $size = \\(Get-ChildItem \"qczj\" -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum\\).Sum / 1MB; Write-Host \"qczj size: $\\([math]::Round\\($size, 2\\)\\) MB\" } else { Write-Host \"qczj deleted\" })",
+      "PowerShell(git *)"
     ]
   }
 }
