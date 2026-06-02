@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { FlattenedParam } from "@/utils/paramFlatten";
 
 type Props = {
@@ -5,12 +6,13 @@ type Props = {
 };
 
 export default function ExportAllParamsCard({ items }: Props) {
+  const { t } = useTranslation();
   if (items.length === 0) return null;
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
-        <div className="text-base font-semibold text-zinc-900">全部参数（导出用）</div>
+        <div className="text-base font-semibold text-zinc-900">{t('model.allParamsExport')}</div>
       </div>
       <div className="p-5">
         <div className="space-y-2">

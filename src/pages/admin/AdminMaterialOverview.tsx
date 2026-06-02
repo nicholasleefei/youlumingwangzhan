@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { supabase } from "@/utils/supabaseClient";
 import { cardContentCls, pageDescCls, pageTitleCls, smallButtonCls } from "@/admin/AdminApp";
 import ContextMenu, { type ContextMenuItem } from "@/components/admin/materialOverview/ContextMenu";
 import DeleteConfirmModal from "@/components/admin/materialOverview/DeleteConfirmModal";
@@ -9,7 +10,32 @@ import useMaterialOverviewData from "@/hooks/useMaterialOverviewData";
 import { selectionRange } from "@/utils/selectionRange";
 import type { MaterialResourceJump } from "@/pages/admin/materialResourceJump";
 
-type DeleteKind = "series_exterior_vr" | "series_interior_vr" | "series_official" | "model_exterior_images" | "model_interior_images";
+type DeleteKind = "series_exterior_vr" | "series_interior_vr" | "series_official" | "model_exterior_images" | "model_interior_images" | "brand_clear";
+
+// Clear options shape
+type ClearOptions = {
+  series: boolean;
+  models: boolean;
+  modelDetails: boolean;
+  carPictures: boolean;
+  modelImageConfig: boolean;
+  seriesVrConfig: boolean;
+  entityTranslations: boolean;
+  translationJobs: boolean;
+  brands: boolean;
+};
+
+const defaultClearOptions: ClearOptions = {
+  series: true,
+  models: true,
+  modelDetails: true,
+  carPictures: true,
+  modelImageConfig: true,
+  seriesVrConfig: true,
+  entityTranslations: true,
+  translationJobs: true,
+  brands: true,
+};
 
 type DeleteAction =
   | { open: false }
@@ -20,6 +46,8 @@ type DeleteAction =
       description: string;
       seriesJmIds: number[];
       modelJmIds: number[];
+      brandJmIds?: number[];
+      clearOptions?: ClearOptions;
     };
 
 export default function AdminMaterialOverview(props: { onGoToResources?: (jump: MaterialResourceJump) => void }) {
@@ -52,6 +80,109 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
 
   const [selected, setSelected] = useState<Set<NodeKey>>(new Set());
   const lastSelectedRef = useRef<{ key: NodeKey; parentKey: string } | null>(null);
+
+  // Brand-level checkbox state
+  const [brandChecked, setBrandChecked] = useState<Set<string>>(new Set());
+  const [clearBrandsBusy, setClearBrandsBusy] = useState(false);
+  const [clearProgress, setClearProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+
+  function toggleBrandCheck(brandId: string) {
+    setBrandChecked(prev => {
+      const next = new Set(prev);
+      if (next.has(brandId)) next.delete(brandId);
+      else next.add(brandId);
+      return next;
+    });
+  }
+
+  function openClearBrands() {
+    const q = brandSearch.trim().toLowerCase();
+    const visibleBrands = q ? brands.filter(b => b.name.toLowerCase().includes(q)) : brands;
+    const checkedBrands = visibleBrands.filter(b => brandChecked.has(b.id));
+    if (checkedBrands.length === 0) return;
+    const names = checkedBrands.length > 3
+      ? checkedBrands.slice(0, 3).map(b => b.name).join("、") + `…等 ${checkedBrands.length} 个`
+      : checkedBrands.map(b => b.name).join("、");
+    setDeleteAction({
+      open: true,
+      kind: "brand_clear",
+      title: `确认清空 ${checkedBrands.length} 个品牌数据`,
+      description: `将清空品牌「${names}」下的数据。请勾选需要删除的内容：`,
+      seriesJmIds: [],
+      modelJmIds: [],
+      brandJmIds: checkedBrands.map(b => b.jm_id),
+      clearOptions: { ...defaultClearOptions },
+    });
+    setDeleteConfirmText("");
+  }
+
+  async function confirmClearBrands(brandJmIds: number[], opts: ClearOptions) {
+    setClearBrandsBusy(true);
+    const total = brandJmIds.length;
+    let done = 0;
+    setClearProgress({ done: 0, total, current: "" });
+    try {
+      for (const bjm of brandJmIds) {
+        // find brand name
+        const brandName = brands.find(b => b.jm_id === bjm)?.name || String(bjm);
+        setClearProgress({ done, total, current: brandName });
+        // 1. get series under this brand
+        const { data: seriesRows } = await supabase.from("series").select("jm_id").eq("brand_jm_id", bjm);
+        const sJmIds = (seriesRows ?? []).map((s: any) => s.jm_id);
+
+        // 2. get models under this brand
+        const { data: modelRows } = await supabase.from("models_jumdata").select("jm_id").eq("brand_jm_id", bjm);
+        const mJmIds = (modelRows ?? []).map((m: any) => m.jm_id);
+
+        // 3. delete model_details
+        if (opts.modelDetails && mJmIds.length > 0) {
+          await supabase.from("model_details").delete().in("model_jm_id", mJmIds);
+          await supabase.from("model_details").delete().in("brand_jm_id", bjm);
+        }
+        // 4. delete car_pictures (images)
+        if (opts.carPictures && mJmIds.length > 0) {
+          await supabase.from("car_pictures").delete().in("model_jm_id", mJmIds);
+        }
+        // 5. delete model_image_config
+        if (opts.modelImageConfig && mJmIds.length > 0) {
+          await supabase.from("model_image_config").delete().in("model_jm_id", mJmIds);
+        }
+        // 6. delete models_jumdata
+        if (opts.models) {
+          await supabase.from("models_jumdata").delete().eq("brand_jm_id", bjm);
+        }
+        // 7. delete series_vr_config
+        if (opts.seriesVrConfig && sJmIds.length > 0) {
+          await supabase.from("series_vr_config").delete().in("series_jm_id", sJmIds);
+        }
+        // 8. delete series
+        if (opts.series) {
+          await supabase.from("series").delete().eq("brand_jm_id", bjm);
+        }
+        // 9. delete entity_translations for brand
+        if (opts.entityTranslations) {
+          await supabase.from("entity_translations").delete().eq("entity_type", "brand").eq("jm_id", String(bjm));
+        }
+        // 10. delete entity_translation_jobs for brand
+        if (opts.translationJobs) {
+          await supabase.from("entity_translation_jobs").delete().eq("entity_type", "brand").eq("jm_id", String(bjm));
+        }
+        // 11. delete the brand itself
+        if (opts.brands) {
+          await supabase.from("brands").delete().eq("jm_id", bjm);
+        }
+        done++;
+      }
+      setBrandChecked(new Set());
+      await loadBrands();
+      setNotice(`已清空 ${brandJmIds.length} 个品牌及其关联数据`);
+    } catch (e: any) {
+      setError(e?.message || "清空失败");
+    } finally {
+      setClearBrandsBusy(false);
+      setClearProgress(null);
+    }
+  }
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -193,10 +324,16 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
       if (deleteAction.kind === "series_official") await deleteSeriesAssets(deleteAction.seriesJmIds, "official_images");
       if (deleteAction.kind === "model_exterior_images") await deleteModelImages(deleteAction.modelJmIds, "exterior");
       if (deleteAction.kind === "model_interior_images") await deleteModelImages(deleteAction.modelJmIds, "interior");
+      if (deleteAction.kind === "brand_clear" && deleteAction.brandJmIds) {
+        await confirmClearBrands(deleteAction.brandJmIds, deleteAction.clearOptions || defaultClearOptions);
+        // Reset checked brands after clear
+        setBrandChecked(new Set());
+      }
 
       setDeleteAction({ open: false });
       setDeleteConfirmText("");
       setNotice("删除完成");
+      clearSelection();
 
       await reloadKeepExpanded(keepBrands, keepSeries);
     } catch (e) {
@@ -339,6 +476,14 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
     </div>
   );
 
+  const [brandSearch, setBrandSearch] = useState("");
+
+  const filteredBrands = useMemo(() => {
+    const q = brandSearch.trim().toLowerCase();
+    if (!q) return brands;
+    return brands.filter(b => b.name.toLowerCase().includes(q));
+  }, [brands, brandSearch]);
+
   const infoBar = error ? (
     <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
   ) : notice ? (
@@ -352,13 +497,48 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
 
       <div className={cardContentCls() + " p-4"}>
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-zinc-800">品牌 → 车系 → 车型</div>
-          <div className="text-xs text-zinc-500">已选 {selected.size} 个节点（右键批量操作）</div>
+          <div className="flex items-center gap-3">
+            <div className="text-sm font-semibold text-zinc-800">品牌 → 车系 → 车型</div>
+            {/* Brand checkboxes */}
+            <button type="button" onClick={() => setBrandChecked(new Set(filteredBrands.map(b => b.id)))} className="text-xs text-blue-600 hover:text-blue-800 select-none">
+              全选
+            </button>
+            <span className="text-zinc-300">|</span>
+            <button type="button" onClick={() => setBrandChecked(new Set())} className="text-xs text-blue-600 hover:text-blue-800 select-none">
+              取消全选
+            </button>
+            <span className="text-zinc-300">|</span>
+            <button type="button" onClick={() => setBrandChecked(prev => { const all = new Set(filteredBrands.map(b => b.id)); for (const id of all) { if (prev.has(id)) all.delete(id); } return all; })} className="text-xs text-blue-600 hover:text-blue-800 select-none">
+              反选
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={brandSearch}
+              onChange={e => { setBrandSearch(e.target.value); setBrandChecked(new Set()); }}
+              placeholder="搜索品牌…"
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder:text-zinc-400 w-44 focus:border-blue-400 focus:outline-none"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            {brandChecked.size > 0 ? (
+              <button
+                type="button"
+                disabled={clearBrandsBusy}
+                onClick={openClearBrands}
+                className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {clearBrandsBusy ? "清空中..." : `清空已选品牌数据（${brandChecked.size}）`}
+              </button>
+            ) : null}
+            <div className="text-xs text-zinc-500">已选 {selected.size} 个节点（右键批量操作）</div>
+          </div>
         </div>
 
         <MaterialTree
           onlyNormal={onlyNormal}
-          brands={brands}
+          brands={filteredBrands}
           expandedBrands={expandedBrands}
           expandedSeries={expandedSeries}
           getSeriesForBrand={getSeriesForBrand}
@@ -423,6 +603,8 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
             }
           }}
           onClearSelection={clearSelection}
+          brandChecked={brandChecked}
+          onToggleBrandCheck={toggleBrandCheck}
         />
       </div>
 
@@ -445,15 +627,73 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
         title={deleteAction.open ? deleteAction.title : "确认删除"}
         description={deleteAction.open ? deleteAction.description : ""}
         confirmText={deleteConfirmText}
-        busy={deleteBusy}
+        busy={deleteBusy || clearBrandsBusy}
         onChangeConfirmText={setDeleteConfirmText}
         onClose={() => {
-          if (deleteBusy) return;
+          if (deleteBusy || clearBrandsBusy) return;
           setDeleteAction({ open: false });
           setDeleteConfirmText("");
         }}
         onConfirm={confirmDelete}
-      />
+      >
+        {deleteAction.open && deleteAction.kind === "brand_clear" && deleteAction.clearOptions ? (
+          <div>
+            {/* Progress bar during clearing */}
+            {clearProgress ? (
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="font-semibold text-blue-800">清空中…</span>
+                  <span className="text-blue-600">{clearProgress.done} / {clearProgress.total}</span>
+                </div>
+                <div className="w-full bg-blue-200 rounded-full h-2.5 overflow-hidden mb-1">
+                  <div
+                    className="h-2.5 rounded-full bg-blue-600 transition-all duration-200"
+                    style={{ width: `${clearProgress.total > 0 ? Math.round((clearProgress.done / clearProgress.total) * 100) : 0}%` }}
+                  />
+                </div>
+                <div className="text-xs text-blue-600 truncate">{clearProgress.current}</div>
+              </div>
+            ) : (
+              <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-800 mb-2">选择要删除的数据：</div>
+                <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: "brands", label: "品牌" },
+                { key: "series", label: "车系" },
+                { key: "models", label: "车型" },
+                { key: "modelDetails", label: "车型详情" },
+                { key: "carPictures", label: "车辆图片 (car_pictures)" },
+                { key: "modelImageConfig", label: "图片配置 (model_image_config)" },
+                { key: "seriesVrConfig", label: "VR配置 (series_vr_config)" },
+                { key: "entityTranslations", label: "翻译数据 (entity_translations)" },
+                { key: "translationJobs", label: "翻译任务 (entity_translation_jobs)" },
+              ].map(({ key, label }) => {
+                const checked = (deleteAction as any).clearOptions?.[key] ?? true;
+                return (
+                  <label key={key} className="flex items-center gap-2 text-xs text-zinc-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setDeleteAction(prev => {
+                          if (!prev.open) return prev;
+                          const opts = { ...(prev.clearOptions || defaultClearOptions) };
+                          (opts as any)[key] = !checked;
+                          return { ...prev, clearOptions: opts };
+                        });
+                      }}
+                      className="rounded border-zinc-300 text-blue-600"
+                    />
+                    {label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+            )}
+          </div>
+        ) : null}
+      </DeleteConfirmModal>
     </div>
   );
 }

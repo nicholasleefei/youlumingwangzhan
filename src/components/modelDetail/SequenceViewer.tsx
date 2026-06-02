@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { RotateCcw } from "lucide-react";
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export default function SequenceViewer({ label, images, variant = "card" }: Props) {
+  const { t } = useTranslation();
   const safeImages = useMemo(() => images.filter((s) => typeof s === "string" && s.trim()), [images]);
   const total = safeImages.length;
   const [idx, setIdx] = useState(0);
@@ -77,7 +79,7 @@ export default function SequenceViewer({ label, images, variant = "card" }: Prop
           />
         ))
       ) : (
-        <div className="h-full w-full flex items-center justify-center text-zinc-500 text-sm">暂无{label}</div>
+        <div className="h-full w-full flex items-center justify-center text-zinc-500 text-sm">{label ? `${t('model.noResources')} - ${label}` : t('model.noResources')}</div>
       )}
       <button
         type="button"
@@ -90,7 +92,7 @@ export default function SequenceViewer({ label, images, variant = "card" }: Prop
         }
       >
         <RotateCcw className="h-4 w-4" />
-        重置
+        {t('model.reset')}
       </button>
       <div
         className={
@@ -99,7 +101,7 @@ export default function SequenceViewer({ label, images, variant = "card" }: Prop
             : "hidden"
         }
       >
-        拖拽左右切换
+        {t('model.dragToSwitch')}
       </div>
     </div>
   );
@@ -111,7 +113,7 @@ export default function SequenceViewer({ label, images, variant = "card" }: Prop
       <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900 truncate">{label}</div>
-          <div className="mt-0.5 text-xs text-zinc-500">{total > 0 ? `${idx + 1} / ${total}` : "暂无资源"}</div>
+          <div className="mt-0.5 text-xs text-zinc-500">{total > 0 ? `${idx + 1} / ${total}` : t('model.noResources')}</div>
         </div>
         <button
           type="button"
@@ -120,7 +122,7 @@ export default function SequenceViewer({ label, images, variant = "card" }: Prop
           className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
         >
           <RotateCcw className="h-4 w-4" />
-          重置
+          {t('model.reset')}
         </button>
       </div>
       {viewer}

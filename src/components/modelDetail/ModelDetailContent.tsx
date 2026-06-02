@@ -19,8 +19,11 @@ import {
 } from "@/components/modelDetail/modelDetailData";
 import { supabase } from "@/utils/supabaseClient";
 import { getSeriesById } from "@/utils/db";
+import type { Locale } from "@/i18n/locales";
 import { flattenParams } from "@/utils/paramFlatten";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
+import { fetchEntityTranslations, getTranslatedField, mergeRawTranslations } from "@/utils/entityTranslation";
+import type { EntityTranslationData } from "@/utils/entityTranslation";
 
 type Variant = "page" | "modal";
 
@@ -83,6 +86,8 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     index: 0,
   });
 
+  const [modelTr, setModelTr] = useState<Map<string, EntityTranslationData>>(new Map());
+
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -117,6 +122,17 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     };
   }, [modelId]);
 
+  useEffect(() => {
+    if (!model || locale === "zh-CN") return;
+    let active = true;
+    const jmIds: number[] = [model.jm_id];
+    if (compareModel?.jm_id) jmIds.push(compareModel.jm_id);
+    fetchEntityTranslations("model_detail", jmIds, locale as Locale)
+      .then((tr) => { if (active) setModelTr(tr); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [model?.jm_id, compareModel?.jm_id, locale]);
+
   const fromSeriesId = useMemo(() => {
     const st: any = location.state;
     const fromState = typeof st?.fromSeriesId === "string" ? st.fromSeriesId : "";
@@ -136,7 +152,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
       return;
     }
 
-    getSeriesById(effectiveSeriesId)
+    getSeriesById(effectiveSeriesId, locale as Locale)
       .then((s) => {
         if (!active) return;
         if (!s) {
@@ -243,10 +259,10 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
 
   const availableTabs = useMemo(() => {
     const out: Array<{ key: "official" | "exterior" | "interior" | "detail"; label: string; images: string[] }> = [];
-    if (official.length) out.push({ key: "official", label: "官方图", images: official });
-    if (exterior.length) out.push({ key: "exterior", label: "外观图", images: exterior });
-    if (interior.length) out.push({ key: "interior", label: "内饰图", images: interior });
-    if (detail.length) out.push({ key: "detail", label: "细节图", images: detail });
+    if (official.length) out.push({ key: "official", label: t("model.officialImages"), images: official });
+    if (exterior.length) out.push({ key: "exterior", label: t("model.exteriorImages"), images: exterior });
+    if (interior.length) out.push({ key: "interior", label: t("model.interiorImages"), images: interior });
+    if (detail.length) out.push({ key: "detail", label: t("model.detailImages"), images: detail });
     return out;
   }, [official.join("|"), exterior.join("|"), interior.join("|"), detail.join("|")]);
 
@@ -258,13 +274,29 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
 
   const activeGallery = useMemo(() => {
     const m = new Map(availableTabs.map((t) => [t.key, t] as const));
-    return m.get(imageTab) ?? availableTabs[0] ?? { key: "official" as const, label: "图片", images: [] as string[] };
+    return m.get(imageTab) ?? availableTabs[0] ?? { key: "official" as const, label: t("model.imageGallery"), images: [] as string[] };
   }, [imageTab, availableTabs]);
 
-  const title = model?.name ?? "车型详情";
+  const title = getTranslatedField(modelTr, model?.jm_id, "name", model?.name ?? "") || model?.name || t("model.modelDetail");
   const subtitle = pickFirstString(model?.yeartype, details?.yeartype, model?.salestate) ?? null;
 
-  const allParamsPayload = useMemo(() => details?.raw ?? {}, [details]);
+  const translatedDetails = useMemo(() => {
+    if (!details) return null;
+    const tr = modelTr.get(String(model?.jm_id ?? ""));
+    const mergedRaw = mergeRawTranslations(details.raw, tr?.raw as Record<string, unknown> | undefined);
+    if (mergedRaw === details.raw) return details;
+    return { ...details, raw: mergedRaw };
+  }, [details, modelTr, model?.jm_id]);
+
+  const translatedCompareDetails = useMemo(() => {
+    if (!compareDetails) return null;
+    const tr = modelTr.get(String(compareModel?.jm_id ?? ""));
+    const mergedRaw = mergeRawTranslations(compareDetails.raw, tr?.raw as Record<string, unknown> | undefined);
+    if (mergedRaw === compareDetails.raw) return compareDetails;
+    return { ...compareDetails, raw: mergedRaw };
+  }, [compareDetails, modelTr, compareModel?.jm_id]);
+
+  const allParamsPayload = useMemo(() => translatedDetails?.raw ?? {}, [translatedDetails]);
   const inlineAllParams = useMemo(() => flattenParams(allParamsPayload, { maxItems: 320, maxDepth: 6 }), [allParamsPayload]);
 
   const openLightbox = (t: string, images: string[], index: number) => {
@@ -303,9 +335,9 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
         heightLeft -= pdfH;
       }
 
-      pdf.save(`${title}-车型详情.pdf`);
+      pdf.save(`${title}-${t("model.modelDetail")}.pdf`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "导出失败");
+      setError(e instanceof Error ? e.message : t("model.exportFailed"));
     } finally {
       setExporting(false);
     }
@@ -317,7 +349,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
         <div className="rounded-3xl border border-zinc-200 bg-white p-10 shadow-sm">
           <div className="flex items-center justify-center py-16">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-transparent" />
-            <span className="ml-3 text-sm text-zinc-600">加载中...</span>
+            <span className="ml-3 text-sm text-zinc-600">{t('model.loading')}</span>
           </div>
         </div>
       </div>
@@ -329,7 +361,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     return (
       <div className={variant === "modal" ? "p-6" : "mx-auto max-w-7xl px-4 py-14"}>
         <div className="rounded-3xl border border-zinc-200 bg-white p-10 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">未找到车型</div>
+          <div className="text-sm font-semibold text-zinc-900">{t("model.notFound")}</div>
           <div className="mt-2 text-sm text-zinc-600">{error ?? ""}</div>
           <div className="mt-6">
             {variant === "modal" ? (
@@ -338,14 +370,14 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
                 onClick={onClose}
                 className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
-                关闭
+                {t("common.close")}
               </button>
             ) : (
               <Link
                 to={fallbackSeriesId ? `${base}/series/${encodeURIComponent(fallbackSeriesId)}` : `${base}/brands`}
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
-                {fallbackSeriesId ? "返回车系" : "返回"}
+                {fallbackSeriesId ? t("model.backToSeries") : t("model.back")}
                 <ChevronRight className="h-4 w-4" />
               </Link>
             )}
@@ -365,7 +397,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
         onChangeIndex={(next) => setLightbox((p) => ({ ...p, index: next }))}
         onClose={() => setLightbox((p) => ({ ...p, open: false }))}
       />
-      <AllParamsModal open={paramsOpen} title={`全部参数 - ${title}`} payload={allParamsPayload} onClose={() => setParamsOpen(false)} />
+      <AllParamsModal open={paramsOpen} title={`${t("model.allParams")} - ${title}`} payload={allParamsPayload} onClose={() => setParamsOpen(false)} />
 
       <div className={variant === "modal" ? "p-6" : "mx-auto max-w-screen-2xl px-6 py-8 lg:py-12"}>
         <div ref={exportRef} className="bg-transparent">
@@ -399,11 +431,11 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
               activeGallery={activeGallery}
               onOpenLightbox={openLightbox}
               currentModel={model}
-              currentDetails={details}
+              currentDetails={translatedDetails}
               compareId={compareId}
               onChangeCompareId={setCompareId}
               compareModel={compareModel}
-              compareDetails={compareDetails}
+              compareDetails={translatedCompareDetails}
             />
 
             {exporting ? (

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ChevronRight, Download, X } from "lucide-react";
 
@@ -38,22 +39,23 @@ export default function ModelDetailHeader({
   onClose,
   addToInquiryText,
 }: Props) {
+  const { t } = useTranslation();
   const brandsTo = `${base}/brands${brandId ? `?brandId=${encodeURIComponent(brandId)}` : ""}`;
   const seriesTo = seriesId ? `${base}/series/${encodeURIComponent(seriesId)}` : "";
   const seriesLabelBase = (seriesName || "").trim();
-  const seriesLabel = seriesLabelBase ? (seriesLabelBase.endsWith("车系") ? seriesLabelBase : `${seriesLabelBase} 车系`) : "车系";
+  const seriesLabel = seriesLabelBase ? (seriesLabelBase.endsWith("车系") ? seriesLabelBase : `${seriesLabelBase} ${t("common.series")}`) : t("common.series");
 
   return (
     <div className="px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6">
       <div className="flex flex-wrap items-center gap-2 text-xs leading-5 text-zinc-500">
         <Link to={brandsTo} className="hover:text-zinc-800">
-          品牌
+          {t("common.brand")}
         </Link>
         {seriesTo ? (
           <>
             <ChevronRight className="h-4 w-4" />
             <Link to={seriesTo} className="hover:text-zinc-800 truncate" title={seriesLabelBase || brandName || ""}>
-              {seriesLabelBase ? seriesLabel : brandName ? `${brandName} 车系` : seriesLabel}
+              {seriesLabelBase ? seriesLabel : brandName ? `${brandName} ${t("common.series")}` : seriesLabel}
             </Link>
           </>
         ) : null}
@@ -84,7 +86,7 @@ export default function ModelDetailHeader({
             onClick={onOpenParams}
             className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-2 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
           >
-            全部参数
+            {t("model.allParams")}
           </button>
           <button
             type="button"
@@ -93,7 +95,7 @@ export default function ModelDetailHeader({
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
-            {exporting ? "生成中..." : "导出PDF"}
+            {exporting ? t("model.generating") : t("model.exportPdf")}
           </button>
           {variant === "modal" ? (
             <button
@@ -102,7 +104,7 @@ export default function ModelDetailHeader({
               className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
             >
               <X className="h-4 w-4" />
-              关闭
+              {t("common.close")}
             </button>
           ) : null}
         </div>

@@ -41,3 +41,19 @@ migrations/
 
 # Env
 .env
+.secrets/
+
+# Supabase local
+supabase/.temp/
+supabase/.gitignore
+supabase/config.toml
+
+# Tools (dev only)
+.tools/
+test-screenshot.png
+
+# Python analysis scripts
+analyze_all_fields.py
+analyze_fields.py
+database-tool.py
+find_missing_fields.py

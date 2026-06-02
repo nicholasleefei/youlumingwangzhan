@@ -76,7 +76,7 @@ export default function InquiryModal({ open, locale, onClose }: Props) {
     setLoadingSeries(selectedSeriesIds.length > 0);
 
     Promise.all([
-      selectedSeriesIds.length > 0 ? listSeriesByIds({ ids: selectedSeriesIds }) : Promise.resolve([]),
+      selectedSeriesIds.length > 0 ? listSeriesByIds({ ids: selectedSeriesIds, locale }) : Promise.resolve([]),
       selectedModelIds.length > 0 ? listModelsByIds({ ids: selectedModelIds, locale }) : Promise.resolve([]),
     ])
       .then(([series, models]) => {

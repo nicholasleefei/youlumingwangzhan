@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Image as ImageIcon } from "lucide-react";
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export default function ModelImageGallery({ title, images, onOpenLightbox }: Props) {
+  const { t } = useTranslation();
   const cleaned = useMemo(() => images.filter((s) => typeof s === "string" && s.trim()), [images]);
   const [index, setIndex] = useState(0);
   const src = cleaned[index] ?? "";
@@ -34,7 +36,7 @@ export default function ModelImageGallery({ title, images, onOpenLightbox }: Pro
           type="button"
           onClick={() => (total > 0 ? onOpenLightbox(index) : null)}
           className="group block w-full"
-          aria-label="打开图片预览"
+          aria-label={t("model.imageGallery")}
         >
           <div className="flex w-full items-center justify-center bg-white px-6 py-10 sm:px-10 sm:py-14 lg:px-12 lg:py-16">
             <div className="w-full max-w-[1040px]">
@@ -44,7 +46,7 @@ export default function ModelImageGallery({ title, images, onOpenLightbox }: Pro
                 ) : (
                   <div className="flex h-full w-full items-center justify-center rounded-xl bg-zinc-50 text-zinc-400">
                     <ImageIcon className="h-6 w-6" />
-                    <span className="ml-2 text-sm">无图片</span>
+                    <span className="ml-2 text-sm">{t("common.noImage")}</span>
                   </div>
                 )}
               </div>
@@ -63,7 +65,7 @@ export default function ModelImageGallery({ title, images, onOpenLightbox }: Pro
                 prev();
               }}
               className="absolute left-4 top-1/2 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/55 text-zinc-900 shadow-sm backdrop-blur-md ring-1 ring-white/60 opacity-100 transition hover:bg-white/75 lg:opacity-0 lg:group-hover:opacity-100"
-              aria-label="上一张"
+              aria-label={t("common.prev")}
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -75,7 +77,7 @@ export default function ModelImageGallery({ title, images, onOpenLightbox }: Pro
                 next();
               }}
               className="absolute right-4 top-1/2 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/55 text-zinc-900 shadow-sm backdrop-blur-md ring-1 ring-white/60 opacity-100 transition hover:bg-white/75 lg:opacity-0 lg:group-hover:opacity-100"
-              aria-label="下一张"
+              aria-label={t("common.next")}
             >
               <ChevronRight className="h-5 w-5" />
             </button>
@@ -84,7 +86,7 @@ export default function ModelImageGallery({ title, images, onOpenLightbox }: Pro
 
         <div className="pointer-events-none absolute bottom-3 left-0 right-0 flex items-center justify-center">
           <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-zinc-700 shadow-sm">
-            {total > 0 ? `${index + 1} / ${total}` : "暂无图片"}
+            {total > 0 ? `${index + 1} / ${total}` : t("common.noImage")}
           </div>
         </div>
       </div>
@@ -104,9 +106,9 @@ export default function ModelImageGallery({ title, images, onOpenLightbox }: Pro
                       ? "h-14 w-20 shrink-0 overflow-hidden rounded-md ring-2 ring-zinc-900"
                       : "h-14 w-20 shrink-0 overflow-hidden rounded-md ring-1 ring-zinc-200 hover:ring-zinc-400"
                   }
-                  aria-label={`查看第 ${i + 1} 张`}
+                  aria-label={`${t("model.thumbnail")} ${i + 1}`}
                 >
-                  <img src={u} alt="缩略图" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                  <img src={u} alt={t("model.thumbnail")} className="h-full w-full object-cover" loading="lazy" decoding="async" />
                 </button>
               );
             })}

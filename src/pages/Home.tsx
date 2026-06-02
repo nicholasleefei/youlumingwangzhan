@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { normalizeLocale, type Locale } from '@/i18n/locales';
 import { supabase } from '@/utils/supabaseClient';
+import { fetchEntityTranslations } from '@/utils/entityTranslation';
+import type { EntityTranslationData } from '@/utils/entityTranslation';
 import Globe from '@/components/Globe';
 import ExportProcess from '@/components/ExportProcess';
 import HeroBanner from '@/components/HeroBanner';
@@ -167,7 +169,7 @@ export default function Home() {
       try {
         const { data: details, error } = await supabase
           .from('model_details')
-          .select('id, model_id, name, logo_url, yeartype, price, sizetype, brandname, parentname, salestate, updated_at, brand_id, brand_jm_id, series_id, hot_card_cover_url, raw')
+          .select('id, model_id, jm_id, name, logo_url, yeartype, price, sizetype, brandname, parentname, salestate, updated_at, brand_id, brand_jm_id, series_id, hot_card_cover_url, raw')
           .eq('hot_sale', true)
           .eq('activity_status', 0)
           .not('model_id', 'is', null)
@@ -220,9 +222,20 @@ export default function Home() {
           return null;
         }
 
+        // Fetch entity translations for brands & series
+        const brandJmIds = (brandsData ?? []).map((b: any) => b.jm_id).filter((n: any) => typeof n === "number");
+        const seriesJmIds = (seriesData ?? []).map((s: any) => s.jm_id).filter((n: any) => typeof n === "number");
+        const modelJmIds = (details ?? []).map((d: any) => d.jm_id).filter((n: any) => typeof n === "number");
+        const [brandTr, seriesTr, modelTr] = await Promise.all([
+          locale !== "zh-CN" && brandJmIds.length > 0 ? fetchEntityTranslations("brand", brandJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+          locale !== "zh-CN" && seriesJmIds.length > 0 ? fetchEntityTranslations("series", seriesJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+          locale !== "zh-CN" && modelJmIds.length > 0 ? fetchEntityTranslations("model_detail", modelJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+        ]);
+
         const seriesNameMap = new Map<string, string>();
         (seriesData ?? []).forEach((s: any) => {
-          const name = String(s.fullname || s.name || '').trim();
+          const trName = seriesTr.get(String(s.jm_id))?.name ?? seriesTr.get(String(s.jm_id))?.fullname;
+          const name = String(trName || s.fullname || s.name || "").trim();
           if (name) seriesNameMap.set(String(s.id), name);
         });
 
@@ -290,16 +303,20 @@ export default function Home() {
           const seriesJumeCover = seriesId ? (seriesIdToJumeLogo.get(seriesId) ?? null) : null;
           const cover = normUrl(d.hot_card_cover_url) || seriesOfficialCover || seriesJumeCover || modelLogoUrl || null;
 
+          // Apply translations
+                    const trBrandName = typeof d.brand_jm_id === "number" ? (brandTr.get(String(d.brand_jm_id))?.name ?? null) : null;
+          const trSeriesName = seriesJmId ? (seriesTr.get(String(seriesJmId))?.name ?? seriesTr.get(String(seriesJmId))?.fullname ?? null) : null;
+
           return {
           id: String(d.id),
           model_id: modelId,
-          name: String(d.name ?? ''),
+          name: typeof d.jm_id === "number" ? (modelTr.get(String(d.jm_id))?.name ?? String(d.name ?? '')) : String(d.name ?? ''),
           logo_url: modelLogoUrl,
           yeartype: d.yeartype ?? null,
           price: d.price ?? null,
           sizetype: d.sizetype ?? null,
-          brandname: d.brandname ?? null,
-          parentname: d.parentname ?? null,
+          brandname: trBrandName ?? d.brandname ?? null,
+          parentname: trSeriesName ?? d.parentname ?? null,
           salestate: d.salestate ?? null,
           brand_id: d.brand_id ? String(d.brand_id) : null,
           brand_jm_id: typeof d.brand_jm_id === 'number' ? d.brand_jm_id : null,
@@ -478,17 +495,17 @@ export default function Home() {
 
                               <div className="mt-5 flex items-center gap-6 text-sm font-semibold text-black">
                                 <div className="text-center">
-                                  <div className="text-xs text-black/45">级别</div>
+                                  <div className="text-xs text-black/45">{t('common.level')}</div>
                                   <div className="mt-1">{m.spec_a || m.sizetype || '—'}</div>
                                 </div>
                                 <div className="h-10 w-px bg-black/10" />
                                 <div className="text-center">
-                                  <div className="text-xs text-black/45">年款</div>
+                                  <div className="text-xs text-black/45">{t('common.yearModel')}</div>
                                   <div className="mt-1">{m.spec_b || m.yeartype || '—'}</div>
                                 </div>
                                 <div className="h-10 w-px bg-black/10" />
                                 <div className="text-center">
-                                  <div className="text-xs text-black/45">续航</div>
+                                  <div className="text-xs text-black/45">{t('common.range')}</div>
                                   <div className="mt-1">{m.spec_c || '—'}</div>
                                 </div>
                               </div>
@@ -500,14 +517,14 @@ export default function Home() {
                                   to={`/${locale}/model/${m.model_id}`}
                                   className="inline-flex items-center justify-center rounded-xl border border-black/15 bg-white/80 px-4 py-2 text-sm font-semibold text-black hover:bg-white"
                                 >
-                                  Explore
+                                  {t('action.exploreVehicles')}
                                 </Link>
                                 {m.series_id ? (
                                   <Link
                                     to={`/${locale}/series/${m.series_id}`}
                                     className="inline-flex items-center justify-center rounded-xl border border-black/15 bg-white/80 px-4 py-2 text-sm font-semibold text-black hover:bg-white"
                                   >
-                                    Series
+                                    {t('common.series')}
                                   </Link>
                                 ) : null}
                                 <button
@@ -522,7 +539,7 @@ export default function Home() {
                                       : 'inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-black/90'
                                   }
                                 >
-                                  {inInquiry ? '✓ 已加入报价单' : t('action.getQuote', '获取报价')}
+                                  {inInquiry ? `✓ ${t('inquiry.added')}` : t('action.getQuote', '获取报价')}
                                 </button>
                               </div>
                             </div>

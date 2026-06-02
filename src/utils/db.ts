@@ -1,5 +1,7 @@
 import { supabase } from "./supabaseClient";
 import type { Locale } from "@/i18n/locales";
+import { fetchEntityTranslations, applyBrandTranslations, applySeriesTranslations } from "./entityTranslation";
+import type { EntityTranslationData } from "./entityTranslation";
 
 export type BrandRow = {
   id: string;
@@ -232,9 +234,15 @@ function pickDisplayName(model: ModelRow, tr: ModelTranslationRow | undefined) {
   return tr?.name ?? model.name;
 }
 
-// 缓存存储
+// Cache — keyed by locale; wiped on translation updates
 const cache: Record<string, { data: any; timestamp: number }> = {};
-const CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
+const CACHE_DURATION = 5 * 60 * 1000; // 5 min
+
+export function clearBrandSeriesCache() {
+  Object.keys(cache).forEach(k => {
+    if (k.startsWith("listBrands_") || k.startsWith("listSeries_")) delete cache[k];
+  });
+}
 
 function getCachedData(key: string) {
   const cached = cache[key];
@@ -280,8 +288,8 @@ export async function listModels(params: {
   const [{ data: models, error: modelErr }, { data: translations, error: trErr }, { data: seriesList, error: seriesErr }, { data: brands, error: brandErr }] = await Promise.all([
     q,
     supabase.from("model_translations").select("*").eq("locale", locale),
-    supabase.from("series").select("id, activity_status, brand_id, name, fullname"),
-    supabase.from("brands").select("id, activity_status, name"),
+    supabase.from("series").select("id, jm_id, activity_status, brand_id, name, fullname"),
+    supabase.from("brands").select("id, jm_id, activity_status, name"),
   ]);
 
   if (modelErr) throw modelErr;
@@ -302,8 +310,8 @@ export async function listModels(params: {
   if (imgErr) throw imgErr;
 
   // 构建状态检查的Map
-  const seriesStatusMap = new Map<string, { activity_status: number; brand_id: string | null; name: string; fullname: string | null }>();
-  (seriesList ?? []).forEach((s) => seriesStatusMap.set(s.id, { activity_status: s.activity_status, brand_id: s.brand_id, name: s.name, fullname: s.fullname ?? null }));
+  const seriesStatusMap = new Map<string, { jm_id?: number; activity_status: number; brand_id: string | null; name: string; fullname: string | null }>();
+  (seriesList ?? []).forEach((s) => seriesStatusMap.set(s.id, { jm_id: s.jm_id ?? undefined, activity_status: s.activity_status, brand_id: s.brand_id, name: s.name, fullname: s.fullname ?? null }));
 
   const brandStatusMap = new Map<string, number>();
   (brands ?? []).forEach((b) => brandStatusMap.set(b.id, b.activity_status));
@@ -330,13 +338,41 @@ export async function listModels(params: {
     if (!coverMap.has(mid)) coverMap.set(mid, url);
   });
 
+  // Fetch entity translations for brand & series names
+  const brandJmIds: number[] = [];
+  const seriesJmIds: number[] = [];
+  (seriesList ?? []).forEach((s: any) => {
+    if (typeof s.jm_id === "number") seriesJmIds.push(s.jm_id);
+  });
+  (brands ?? []).forEach((b: any) => {
+    if (typeof b.jm_id === "number") brandJmIds.push(b.jm_id);
+  });
+
+  const [brandTr, seriesTr] = await Promise.all([
+    brandJmIds.length > 0 ? fetchEntityTranslations("brand", brandJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+    seriesJmIds.length > 0 ? fetchEntityTranslations("series", seriesJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+  ]);
+
+  // Build brand-id -> name map for series brand lookup
+  const brandNameOfId = new Map<string, string>();
+  (brands ?? []).forEach((b: any) => {
+    const translated = brandTr.get(String(b.jm_id))?.name ?? b.name;
+    brandNameOfId.set(b.id, translated);
+  });
+
   const items: ModelListItem[] = validModels.map((m: any) => {
     const tr = trMap.get(m.id);
     const seriesInfo = m.series_id ? seriesStatusMap.get(m.series_id) : null;
-    const seriesName = seriesInfo ? (seriesInfo.fullname || seriesInfo.name) : null;
+    const rawSeriesName = seriesInfo ? (seriesInfo.fullname || seriesInfo.name) : null;
+    const translatedSeriesName = seriesInfo ? (seriesTr.get(String(seriesInfo.jm_id))?.name ?? seriesTr.get(String(seriesInfo.jm_id))?.fullname ?? rawSeriesName) : null;
+    const seriesName = translatedSeriesName ?? rawSeriesName;
 
     const jmExterior = Array.isArray(m.exterior_images) ? m.exterior_images.filter((u: any) => typeof u === "string" && u.trim()) : [];
     const jumeFallback = (jmExterior[0] as string | undefined) ?? null;
+
+    // Translate brand name if possible, else use raw value
+    const rawBrand = typeof m.brand === "string" ? m.brand : null;
+    const translatedBrand = (seriesInfo && seriesInfo.brand_id) ? (brandNameOfId.get(seriesInfo.brand_id) ?? rawBrand) : rawBrand;
 
     return {
       ...m,
@@ -345,6 +381,7 @@ export async function listModels(params: {
       cover_image: coverMap.get(m.jm_id) ?? jumeFallback,
       fuel_type: m.energy_type,
       series_name: seriesName,
+      brand: translatedBrand,
     };
   });
 
@@ -358,11 +395,10 @@ export async function listModelsByIds(params: {
   locale: Locale;
 }) {
   const { ids, locale } = params;
-  void locale;
   const uniqIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
   if (uniqIds.length === 0) return [] as InquirySelectedModel[];
 
-  const cacheKey = `listModelsByIds_inquiry_${uniqIds.slice().sort().join("|")}_v1`;
+  const cacheKey = `listModelsByIds_inquiry_${uniqIds.slice().sort().join("|")}_${locale}_v2`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
@@ -371,25 +407,31 @@ export async function listModelsByIds(params: {
 
   const { data: details, error: detErr } = await supabase
     .from("model_details")
-    .select("model_id, name, yeartype, brandname, parentname")
+    .select("model_id, name, yeartype, brandname, parentname, brand_jm_id, series_jm_id, jm_id")
     .in("model_id", uniqIds)
     .eq("activity_status", 0)
     .limit(5000);
   if (detErr) throw detErr;
 
   const byId = new Map<string, any>();
+  const allBrandJmIds: number[] = [];
+  const allSeriesJmIds: number[] = [];
+  const allModelJmIds: number[] = [];
   (details ?? []).forEach((r: any) => {
     const id = String(r?.model_id ?? "").trim();
     if (!id) return;
     if (byId.has(id)) return;
     byId.set(id, r);
+    if (typeof r.brand_jm_id === "number") allBrandJmIds.push(r.brand_jm_id);
+    if (typeof r.series_jm_id === "number") allSeriesJmIds.push(r.series_jm_id);
+    if (typeof r.jm_id === "number") allModelJmIds.push(r.jm_id);
   });
 
   const missingIds = uniqIds.filter((id) => !byId.has(id));
   if (missingIds.length > 0) {
     const { data: jmRows, error: jmErr } = await supabase
       .from("models_jumdata")
-      .select("id, name, brand_name, series_name")
+      .select("id, name, brand_name, series_name, brand_jm_id, series_jm_id")
       .in("id", missingIds)
       .eq("activity_status", 0)
       .limit(5000);
@@ -404,19 +446,45 @@ export async function listModelsByIds(params: {
         yeartype: null,
         brandname: r?.brand_name ?? null,
         parentname: r?.series_name ?? null,
+        brand_jm_id: r?.brand_jm_id ?? null,
+        series_jm_id: r?.series_jm_id ?? null,
+        jm_id: r?.id ?? null,
       });
+      if (typeof r.brand_jm_id === "number") allBrandJmIds.push(r.brand_jm_id);
+      if (typeof r.series_jm_id === "number") allSeriesJmIds.push(r.series_jm_id);
+      if (typeof r.id === "number") allModelJmIds.push(r.id);
     });
   }
+
+  const [brandTr, seriesTr, modelTr] = await Promise.all([
+    allBrandJmIds.length > 0 ? fetchEntityTranslations("brand", allBrandJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+    allSeriesJmIds.length > 0 ? fetchEntityTranslations("series", allSeriesJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+    allModelJmIds.length > 0 ? fetchEntityTranslations("model_detail", allModelJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+  ]);
 
   const items: InquirySelectedModel[] = uniqIds
     .map((id) => {
       const r = byId.get(id);
       if (!r) return null;
+      const rawBrand = r?.brandname ? String(r.brandname) : null;
+      const rawSeries = r?.parentname ? String(r.parentname) : null;
+      const rawName = String(r?.name ?? "");
+
+      const translatedBrand = typeof r.brand_jm_id === "number" && brandTr.get(String(r.brand_jm_id))?.name
+        ? brandTr.get(String(r.brand_jm_id))!.name!
+        : rawBrand;
+      const translatedSeries = typeof r.series_jm_id === "number" && seriesTr.get(String(r.series_jm_id))?.name
+        ? seriesTr.get(String(r.series_jm_id))!.name!
+        : rawSeries;
+      const translatedName = typeof r.jm_id === "number"
+        ? (modelTr.get(String(r.jm_id))?.name ?? rawName)
+        : rawName;
+
       return {
         id,
-        display_name: buildInquiryDisplayName(String(r?.name ?? ""), r?.yeartype ?? null),
-        brand: r?.brandname ? String(r.brandname) : null,
-        series_name: r?.parentname ? String(r.parentname) : null,
+        display_name: buildInquiryDisplayName(translatedName, r?.yeartype ?? null),
+        brand: translatedBrand,
+        series_name: translatedSeries,
       };
     })
     .filter(Boolean) as InquirySelectedModel[];
@@ -426,12 +494,12 @@ export async function listModelsByIds(params: {
   return items.slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
-export async function listSeriesByIds(params: { ids: string[] }) {
-  const { ids } = params;
+export async function listSeriesByIds(params: { ids: string[]; locale?: Locale }) {
+  const { ids, locale } = params;
   const uniqIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
   if (uniqIds.length === 0) return [] as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>;
 
-  const cacheKey = `listSeriesByIds_inquiry_${uniqIds.slice().sort().join("|")}_v1`;
+  const cacheKey = `listSeriesByIds_inquiry_${uniqIds.slice().sort().join("|")}_${locale ?? "none"}_v2`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
@@ -440,13 +508,27 @@ export async function listSeriesByIds(params: { ids: string[] }) {
 
   const { data, error } = await supabase
     .from("series")
-    .select("id, name, fullname, brand_name")
+    .select("id, name, fullname, brand_name, jm_id")
     .in("id", uniqIds)
     .eq("activity_status", 0)
     .limit(5000);
   if (error) throw error;
 
-  const items = (data ?? []) as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>;
+  let items = (data ?? []) as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null; jm_id?: number }>;
+
+  if (locale && locale !== "zh-CN" && items.length > 0) {
+    const jmIds = items.map((s: any) => s.jm_id as number).filter((n) => typeof n === "number" && Number.isFinite(n));
+    if (jmIds.length > 0) {
+      const translations = await fetchEntityTranslations("series", jmIds, locale);
+      items = items.map((s: any) => ({
+        ...s,
+        name: translations.get(String(s.jm_id))?.name ?? s.name,
+        fullname: translations.get(String(s.jm_id))?.fullname ?? s.fullname,
+        brand_name: translations.get(String(s.jm_id))?.brandname ?? s.brand_name,
+      }));
+    }
+  }
+
   setCachedData(cacheKey, items);
   const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
   return items.slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
@@ -498,15 +580,43 @@ export async function getModelBySlug(params: { slug: string; locale: Locale }) {
     }
   }
 
-  const [{ data: tr }, { data: images }] = await Promise.all([
+  const [{ data: tr }, { data: images }, seriesData, brandData] = await Promise.all([
     supabase.from("model_translations").select("*").eq("model_id", model.id).eq("locale", locale).maybeSingle(),
     supabase.from("car_pictures").select("*").eq("model_jm_id", model.jm_id).order("sort_order", { ascending: true }),
+    model.series_id
+      ? supabase.from("series").select("id, jm_id, name, fullname, brand_id").eq("id", model.series_id).single()
+      : Promise.resolve({ data: null, error: null }),
+    model.series_id
+      ? supabase.from("series").select("brand_id").eq("id", model.series_id).single().then(({ data: s }) =>
+          s?.brand_id
+            ? supabase.from("brands").select("id, jm_id, name").eq("id", s.brand_id).single()
+            : Promise.resolve({ data: null, error: null }),
+        )
+      : Promise.resolve({ data: null, error: null }),
   ]);
+
+  // Fetch translations for the related brand and series
+  let seriesNameTr: string | null = null;
+  let brandNameTr: string | null = null;
+  if (locale !== "zh-CN") {
+    const brandJmId = brandData?.data?.jm_id as number | undefined;
+    const seriesJmId = seriesData?.data?.jm_id as number | undefined;
+    if (brandJmId || seriesJmId) {
+      const [bt, st] = await Promise.all([
+        brandJmId ? fetchEntityTranslations("brand", [brandJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+        seriesJmId ? fetchEntityTranslations("series", [seriesJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+      ]);
+      if (brandJmId) brandNameTr = bt.get(String(brandJmId))?.name ?? null;
+      if (seriesJmId) seriesNameTr = st.get(String(seriesJmId))?.name ?? st.get(String(seriesJmId))?.fullname ?? null;
+    }
+  }
 
   const result = {
     model,
     translation: tr ?? null,
     images: images ?? [],
+    seriesNameTranslated: seriesNameTr,
+    brandNameTranslated: brandNameTr,
   };
 
   // 缓存结果
@@ -567,8 +677,9 @@ export async function createInquiry(params: {
   return inserted as InquiryRow;
 }
 
-export async function listBrands() {
-  const cacheKey = "listBrands";
+export async function listBrands(params?: { locale?: Locale }) {
+  const locale = params?.locale;
+  const cacheKey = `listBrands_${locale ?? "none"}`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     return cachedData;
@@ -582,16 +693,29 @@ export async function listBrands() {
 
   if (error) throw error;
 
-  setCachedData(cacheKey, data);
-  return data as BrandRow[];
+  let result = data as BrandRow[];
+
+  if (locale && locale !== "zh-CN" && result.length > 0) {
+    const jmIds = result.map((b) => b.jm_id).filter((n) => typeof n === "number" && Number.isFinite(n));
+    if (jmIds.length > 0) {
+      const translations = await fetchEntityTranslations("brand", jmIds, locale);
+      const translated = applyBrandTranslations(result, translations) as BrandRow[];
+      setCachedData(cacheKey, translated);
+      return translated;
+    }
+  }
+
+  setCachedData(cacheKey, result);
+  return result;
 }
 
 export async function listSeries(params: {
   brandId?: string;
   brandJmId?: number;
+  locale?: Locale;
 }) {
-  const { brandId, brandJmId } = params;
-  const cacheKey = `listSeries_${brandId || ''}_${brandJmId || ''}_v3`;
+  const { brandId, brandJmId, locale } = params;
+  const cacheKey = `listSeries_${brandId || ''}_${brandJmId || ''}_${locale ?? "none"}_v4`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     return cachedData;
@@ -683,13 +807,25 @@ export async function listSeries(params: {
   }
 
   // Only cache if we actually got data
-  if (data.length > 0) {
-    setCachedData(cacheKey, data);
+  let result = data as SeriesRow[];
+
+  if (locale && locale !== "zh-CN" && result.length > 0) {
+    const jmIds = result.map((s) => s.jm_id).filter((n) => typeof n === "number" && Number.isFinite(n));
+    if (jmIds.length > 0) {
+      const translations = await fetchEntityTranslations("series", jmIds, locale);
+      const translated = applySeriesTranslations(result, translations) as SeriesRow[];
+      setCachedData(cacheKey, translated);
+      return translated;
+    }
   }
-  return data as SeriesRow[];
+
+  if (data.length > 0) {
+    setCachedData(cacheKey, result);
+  }
+  return result;
 }
 
-export async function getSeriesById(id: string) {
+export async function getSeriesById(id: string, locale?: Locale) {
   const { data, error } = await supabase
     .from("series")
     .select("*, brands(*)")
@@ -699,8 +835,32 @@ export async function getSeriesById(id: string) {
   if (error) {
     throw error;
   }
-  
-  return data as (SeriesRow & { brands: BrandRow }) | null;
+
+  if (!data) return null;
+
+  const result = data as (SeriesRow & { brands: BrandRow }) | null;
+  if (!result) return null;
+
+  if (locale && locale !== "zh-CN") {
+    const brandJmId = result.brands?.jm_id;
+    const seriesJmId = result.jm_id;
+
+    const [brandTr, seriesTr] = await Promise.all([
+      brandJmId ? fetchEntityTranslations("brand", [brandJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+      seriesJmId ? fetchEntityTranslations("series", [seriesJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
+    ]);
+
+    if (brandTr.size > 0 && result.brands) {
+      result.brands.name = brandTr.get(String(brandJmId!))?.name ?? result.brands.name;
+    }
+    if (seriesTr.size > 0) {
+      result.name = seriesTr.get(String(seriesJmId))?.name ?? result.name;
+      result.fullname = seriesTr.get(String(seriesJmId))?.fullname ?? result.fullname;
+      result.subcompany_name = seriesTr.get(String(seriesJmId))?.subcompany_name ?? result.subcompany_name;
+    }
+  }
+
+  return result;
 }
 
 export async function listModelsBySeriesId(params: {

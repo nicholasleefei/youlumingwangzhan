@@ -6,7 +6,7 @@ import SiteFooter from "@/components/SiteFooter";
 import InquiryFloatingButton from "@/components/InquiryFloatingButton";
 import InquiryModal from "@/components/InquiryModal";
 import { normalizeLocale, type Locale } from "@/i18n/locales";
-import { setDocumentLocale } from "@/i18n/i18n";
+import { ensureUiTranslationsForLocale, setDocumentLocale } from "@/i18n/i18n";
 import { useInquiryModal } from "@/store/useInquiryModal";
 
 export default function LocaleLayout() {
@@ -23,6 +23,7 @@ export default function LocaleLayout() {
     if (i18n.language !== locale) {
       i18n.changeLanguage(locale);
     }
+    ensureUiTranslationsForLocale(locale);
     window.localStorage.setItem("ylm_locale", locale);
     setDocumentLocale(locale);
   }, [i18n, locale]);

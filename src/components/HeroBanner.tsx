@@ -95,7 +95,7 @@ export default function HeroBanner({
             <p className="studio-hero-subtitle">{subtitle}</p>
             <div className="studio-hero-actions">
               <a href="#models" className="btn btn-primary">
-                Browse Hot Models
+                {t("action.browseHotModels")}
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <path d="M5 10H15M15 10L10 5M15 10L10 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

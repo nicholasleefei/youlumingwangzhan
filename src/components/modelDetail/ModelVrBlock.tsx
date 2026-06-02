@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import InteriorVRViewer from "@/components/modelDetail/InteriorVRViewer";
 import SequenceViewer from "@/components/modelDetail/SequenceViewer";
 import { filterInteriorVrPositions, getInteriorVrVisibilityConfig, type InteriorVrPosition } from "@/utils/interiorVrVisibility";
@@ -17,6 +18,7 @@ function hexToCssColor(input: string) {
 }
 
 export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
+  const { t } = useTranslation();
   const [vrTab, setVrTab] = useState<"vr_exterior" | "vr_interior">("vr_exterior");
   const [selectedExteriorId, setSelectedExteriorId] = useState<string | null>(null);
   const [selectedInteriorColorId, setSelectedInteriorColorId] = useState<string | null>(null);
@@ -101,7 +103,7 @@ export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
             onClick={() => setVrTab("vr_exterior")}
             className={vrTab === "vr_exterior" ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-800"}
           >
-            外观
+            {t("model.exterior")}
           </button>
           <span className="text-zinc-300">|</span>
           <button
@@ -109,7 +111,7 @@ export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
             onClick={() => setVrTab("vr_interior")}
             className={vrTab === "vr_interior" ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-800"}
           >
-            内饰
+            {t("model.interior")}
           </button>
         </div>
 
@@ -134,8 +136,8 @@ export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
                       ? "relative h-10 w-10 shrink-0 rounded-full border-2 border-zinc-900 bg-white/60 backdrop-blur"
                       : "relative h-10 w-10 shrink-0 rounded-full border border-zinc-200 bg-white/60 backdrop-blur hover:border-zinc-400"
                   }
-                  aria-label={g.color_name || g.color_code || "颜色"}
-                  title={g.color_name || g.color_code || "颜色"}
+                  aria-label={g.color_name || g.color_code || t("common.color")}
+                  title={g.color_name || g.color_code || t("common.color")}
                 >
                   <span className="absolute inset-1 rounded-full" style={{ background: color }} />
                   {active ? <span className="absolute inset-0 grid place-items-center text-xs font-bold text-white">✓</span> : null}
@@ -156,16 +158,16 @@ export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
                       ? "inline-flex shrink-0 items-center gap-2 rounded-full bg-zinc-900/90 px-3 py-2 text-xs font-semibold text-white backdrop-blur"
                       : "inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-200 bg-white/60 px-3 py-2 text-xs font-semibold text-zinc-900 backdrop-blur hover:bg-white/70"
                   }
-                  aria-label={g.color_name || g.color_value || "颜色"}
-                  title={g.color_name || g.color_value || "颜色"}
+                  aria-label={g.color_name || g.color_value || t("common.color")}
+                  title={g.color_name || g.color_value || t("common.color")}
                 >
                   <span className="h-3.5 w-3.5 rounded-full ring-1 ring-zinc-300" style={{ background: color }} />
-                  <span className="max-w-28 truncate">{g.color_name || g.color_value || "未命名颜色"}</span>
+                  <span className="max-w-28 truncate">{g.color_name || g.color_value || t("model.unnamedColor")}</span>
                 </button>
               );
             })
           ) : (
-            <div className="rounded-full bg-white/55 px-4 py-2 text-xs text-zinc-700 backdrop-blur">无颜色可选</div>
+            <div className="rounded-full bg-white/55 px-4 py-2 text-xs text-zinc-700 backdrop-blur">{t("model.noColorAvailable")}</div>
           )}
         </div>
 
@@ -184,7 +186,7 @@ export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
                       : "rounded-full border border-zinc-200 bg-white/60 px-4 py-1.5 text-xs font-semibold text-zinc-900 backdrop-blur hover:bg-white/70"
                   }
                 >
-                  {p.position_name || p.position || "位置"}
+                  {p.position_name || p.position || t("common.position") || "位置"}
                 </button>
               );
             })}
@@ -202,9 +204,9 @@ export default function ModelVrBlock({ seriesVrConfig, loading }: Props) {
             <div className="relative">
               {controls}
               {vrTab === "vr_exterior" ? (
-                <SequenceViewer label="360 外观" images={exteriorSequenceImages} variant="plain" />
+                <SequenceViewer label={t("vr.360Exterior")} images={exteriorSequenceImages} variant="plain" />
               ) : (
-                <InteriorVRViewer label="内饰 VR" images={interiorPanoImages} variant="plain" />
+                <InteriorVRViewer label={t("vr.interiorVR")} images={interiorPanoImages} variant="plain" />
               )}
             </div>
           </div>

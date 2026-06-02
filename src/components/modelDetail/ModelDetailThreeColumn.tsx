@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import KeyParamsCompare from "@/components/modelDetail/KeyParamsCompare";
 import ModelImageGallery from "@/components/modelDetail/ModelImageGallery";
 import SeriesModelList from "@/components/modelDetail/SeriesModelList";
@@ -40,13 +41,14 @@ export default function ModelDetailThreeColumn({
   compareModel,
   compareDetails,
 }: Props) {
+  const { t } = useTranslation();
   const seriesId = currentModel?.series_id ?? null;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:gap-10 lg:grid-cols-[clamp(260px,20vw,340px)_minmax(0,1fr)]">
       <div className="space-y-3 lg:sticky lg:top-24 lg:self-start lg:border-r lg:border-zinc-100 lg:pr-8">
         {seriesLoading ? (
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">加载车型列表...</div>
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">{t('model.loadingModelList')}</div>
         ) : (
           <SeriesModelList base={base} models={seriesModels} activeId={modelId} seriesId={seriesId} />
         )}
@@ -55,7 +57,7 @@ export default function ModelDetailThreeColumn({
       <div className="space-y-4 lg:pl-2">
         <div className="flex flex-wrap items-center justify-center gap-2">
           {availableTabs.length === 0 ? (
-            <div className="text-sm text-zinc-500">暂无图片</div>
+            <div className="text-sm text-zinc-500">{t('common.noImage')}</div>
           ) : (
             availableTabs.map((tab) => (
               <button
@@ -75,7 +77,7 @@ export default function ModelDetailThreeColumn({
         </div>
 
         <ModelImageGallery
-          title="图片展示"
+          title={t('model.imageGallery')}
           images={activeGallery.images}
           onOpenLightbox={(idx) => onOpenLightbox(activeGallery.label, activeGallery.images, idx)}
         />

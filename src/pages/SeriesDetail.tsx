@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, ChevronRight, ClipboardList } from "lucide-react";
@@ -11,6 +11,8 @@ import SafeImage from "@/components/SafeImage";
 import ModelVrBlock from "@/components/modelDetail/ModelVrBlock";
 import ImageLightbox from "@/components/modelDetail/ImageLightbox";
 import { normalizeSeriesVrConfig } from "@/utils/seriesVrNormalize";
+import { fetchEntityTranslations, getTranslatedField, mergeRawTranslations } from "@/utils/entityTranslation";
+import type { EntityTranslationData } from "@/utils/entityTranslation";
 
 const { getSeriesById } = DB;
 
@@ -119,7 +121,7 @@ function extractJumeiParamRows(raw: any): Array<{ group: string; key: string; la
   }
 
   const pushParam = (group: string, label: string, value: any, key: string) => {
-    const gl = String(group || "").trim() || "聚美参数";
+    const gl = String(group || "").trim() || "{t('series.jumData')}";
     const ll = String(label || "").trim() || key;
     const kk = `${gl}::${key || ll}`;
     out.push({ group: gl, key: kk, label: ll, value });
@@ -206,7 +208,7 @@ function extractJumeiParamRows(raw: any): Array<{ group: string; key: string; la
     if (depth > 3) return;
     if (node === null || node === undefined) return;
     if (typeof node !== "object") {
-      pushParam("聚美参数", path.join("."), node, path.join("."));
+      pushParam("{t('series.jumData')}", path.join("."), node, path.join("."));
       return;
     }
     if (Array.isArray(node)) {
@@ -259,7 +261,7 @@ function buildModelBadges(model: SeriesModel, specs: ModelSpecs | null, raw: unk
   })();
 
   push(specs?.energy_type);
-  if (rangeKm !== null) push(`续航 ${rangeKm}km`);
+  if (rangeKm !== null) push(`{t('common.range')} ${rangeKm}km`);
   if (typeof specs?.motor_horsepower === "number" && Number.isFinite(specs.motor_horsepower)) push(`${specs.motor_horsepower}Hp`);
 
   if (out.length < 4) push(specs?.level ?? specs?.vehicle_class ?? model.sizetype);
@@ -292,6 +294,7 @@ export default function SeriesDetail() {
   const [models, setModels] = useState<SeriesModel[]>([]);
   const [modelSpecsMap, setModelSpecsMap] = useState<Record<string, ModelSpecs>>({});
   const [modelRawMap, setModelRawMap] = useState<Record<string, any>>({});
+  const [modelTr, setModelTr] = useState<Map<string, EntityTranslationData>>(new Map());
   const [rawDebug, setRawDebug] = useState<{ rows: number; modelsWithRaw: number } | null>(null);
 
   const [seriesVrLoading, setSeriesVrLoading] = useState(false);
@@ -319,7 +322,7 @@ export default function SeriesDetail() {
     setError(null);
 
     Promise.all([
-      getSeriesById(seriesId),
+      getSeriesById(seriesId, locale),
       supabase
         .from("models_jumdata")
         .select("*")
@@ -387,6 +390,17 @@ export default function SeriesDetail() {
       active = false;
     };
   }, [query, t]);
+
+  useEffect(() => {
+    if (!models.length || locale === "zh-CN") return;
+    let active = true;
+    const jmIds = models.map((m) => m.jm_id).filter((n) => typeof n === "number" && Number.isFinite(n));
+    if (!jmIds.length) return;
+    fetchEntityTranslations("model_detail", jmIds, locale)
+      .then((tr) => { if (active) setModelTr(tr); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [models, locale]);
 
   useEffect(() => {
     let active = true;
@@ -473,11 +487,13 @@ export default function SeriesDetail() {
   const extractedRawByModel = useMemo(() => {
     const out: Record<string, Array<{ group: string; key: string; label: string; value: any }>> = {};
     for (const m of compareModels) {
-      const raw = modelRawMap[m.id];
-      out[m.id] = extractJumeiParamRows(raw);
+      const originalRaw = modelRawMap[m.id];
+      const tr = modelTr.get(String(m.jm_id ?? ""));
+      const mergedRaw = mergeRawTranslations(originalRaw, tr?.raw as Record<string, unknown> | undefined);
+      out[m.id] = extractJumeiParamRows(mergedRaw ?? originalRaw);
     }
     return out;
-  }, [compareModels.map((m) => m.id).join("|"), modelRawMap]);
+  }, [compareModels.map((m) => m.id).join("|"), modelRawMap, modelTr]);
 
   const rawGroupStats = useMemo(() => {
     let groups = 0;
@@ -507,8 +523,8 @@ export default function SeriesDetail() {
       ["salestate", "在售状态"],
       ["productionstate", "生产状态"],
       ["updated_at", "更新时间"],
-      ["yeartype", "年款"],
-      ["sizetype", "级别"],
+      ["yeartype", "{t('common.yearModel')}"],
+      ["sizetype", "{t('common.level')}"],
       ["geartype", "变速箱"],
       ["listdate", "上市时间"],
       ["environmentalstandards2", "环保标准"],
@@ -519,9 +535,9 @@ export default function SeriesDetail() {
 
     const modelPrefer: Array<[string, string]> = [
       ["energy_type", "能源类型"],
-      ["vehicle_class", "级别(站内)"],
-      ["level", "级别"],
-      ["cltc_range", "CLTC续航(km)"],
+      ["vehicle_class", "{t('common.level')}(站内)"],
+      ["level", "{t('common.level')}"],
+      ["cltc_range", "CLTC{t('common.range')}(km)"],
       ["charging_time_fast", "快充时间"],
       ["fast_charge_percentage", "快充电量范围(%)"],
       ["motor_total_power", "最大功率(kW)"],
@@ -530,7 +546,7 @@ export default function SeriesDetail() {
       ["length_mm", "长度(mm)"],
       ["width_mm", "宽度(mm)"],
       ["height_mm", "高度(mm)"],
-      ["wheelbase_mm", "轴距(mm)"],
+      ["wheelbase_mm", "{t('model.wheelbase')}(mm)"],
       ["max_speed", "最高车速(km/h)"],
       ["acceleration_0_100", "0-100加速(s)"],
       ["seats", "座位数(站内)"],
@@ -583,7 +599,7 @@ export default function SeriesDetail() {
     if (pricingItems.length > 0) {
       groups.push({
         id: "pricing",
-        label: "价格与状态（重点）",
+        label: "{t('series.priceStatus')}",
         items: pricingItems.map((it) => ({
           key: it.key,
           label: it.label,
@@ -598,7 +614,7 @@ export default function SeriesDetail() {
     if (modelTopItems.length > 0) {
       groups.push({
         id: "core",
-        label: "核心参数（重点）",
+        label: "{t('series.coreParams')}",
         items: modelTopItems.map((it) => ({
           key: it.key,
           label: it.label,
@@ -609,7 +625,7 @@ export default function SeriesDetail() {
 
     groups.push({
       id: "jum_all",
-      label: "全部参数（models_jumdata）",
+      label: "全部{t('model.param')}（models_jumdata）",
       items: jumRest.map((it) => ({
         key: it.key,
         label: it.label,
@@ -631,7 +647,7 @@ export default function SeriesDetail() {
       for (const g of rawGroups) {
         groups.push({
           id: `raw_${g.label}`,
-          label: `聚美参数（${g.label}）`,
+          label: `{t('series.jumData')}（${g.label}）`,
           items: g.rows.map((r) => ({
             key: r.key,
             label: r.label,
@@ -647,7 +663,7 @@ export default function SeriesDetail() {
 
     groups.push({
       id: "model_all",
-      label: "全部参数（models + specs）",
+      label: "全部{t('model.param')}（models + specs）",
       items: modelRest.map((it) => ({
         key: it.key,
         label: it.label,
@@ -787,7 +803,7 @@ export default function SeriesDetail() {
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <Link to={`${base}/brands`} className="hover:text-zinc-800">{t("nav.brands")}</Link>
             <ChevronRight className="h-4 w-4" />
-            <Link to={`${base}/brands?brandId=${series.brand_id}`} className="text-zinc-700 hover:text-zinc-900 hover:underline">{brandName} {locale === "zh-CN" ? "车系" : "Series"}</Link>
+            <Link to={`${base}/brands?brandId=${series.brand_id}`} className="text-zinc-700 hover:text-zinc-900 hover:underline">{brandName} {t('common.series')}</Link>
             <ChevronRight className="h-4 w-4" />
             <span className="text-zinc-900 font-medium">{seriesFullname}</span>
           </div>
@@ -817,10 +833,10 @@ export default function SeriesDetail() {
                           : "inline-flex items-center justify-center rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
                       }
                     >
-                      {addingToInquiry ? t("common.loading") : seriesInInquiry ? "✓ 已加入询盘" : t("action.addToInquiry")}
+                      {addingToInquiry ? t("common.loading") : seriesInInquiry ? `✓ ${t('inquiry.added')}` : t("action.addToInquiry")}
                     </button>
                     {!seriesInInquiry && selectedInSeriesCount > 0 ? (
-                      <span className="text-xs font-semibold text-zinc-600">已选 {selectedInSeriesCount} 款</span>
+                      <span className="text-xs font-semibold text-zinc-600">{t('inquiry.selectedCount', { count: selectedInSeriesCount })}</span>
                     ) : null}
                   </div>
                 </div>
@@ -843,8 +859,8 @@ export default function SeriesDetail() {
               <div className="border-b border-zinc-200 px-6 py-5 md:px-8 md:py-6">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-900">车型筛选</div>
-                    <div className="mt-1 text-sm text-zinc-600">{visibleModels.length > 0 ? `共 ${visibleModels.length} 款车型` : "暂无车型数据"}</div>
+                    <div className="text-sm font-semibold text-zinc-900">{t('model.filter')}</div>
+                    <div className="mt-1 text-sm text-zinc-600">{visibleModels.length > 0 ? t('model.countModels', { count: visibleModels.length }) : t('model.noModels')}</div>
                   </div>
                 </div>
 
@@ -870,7 +886,7 @@ export default function SeriesDetail() {
 
               <div className="lg:flex-1 lg:overflow-auto">
                 {activeModels.length === 0 ? (
-                  <div className="p-10 text-center text-sm text-zinc-600">暂无车型</div>
+                  <div className="p-10 text-center text-sm text-zinc-600">{t('model.noModels')}</div>
                 ) : (
                   <div className="divide-y divide-zinc-100">
                     {(() => {
@@ -903,7 +919,7 @@ export default function SeriesDetail() {
                                 state={{ fromSeriesId: String(seriesId) }}
                                 className="text-base font-semibold text-blue-700 hover:text-blue-800"
                               >
-                                {m.name}
+                                {getTranslatedField(modelTr, m.jm_id, "name", m.name)}
                               </Link>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 {badges.map((b) => (
@@ -942,26 +958,26 @@ export default function SeriesDetail() {
               <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
                 <div className="h-px w-24 bg-zinc-200" />
                 <div className="font-semibold text-zinc-900">
-                  轴距 <span className="text-zinc-500 font-medium">{wheelbase ? `${wheelbase}` : "—"}</span>
+                  {t('model.wheelbase')} <span className="text-zinc-500 font-medium">{wheelbase ? `${wheelbase}` : "—"}</span>
                 </div>
                 <div className="h-px w-24 bg-zinc-200" />
               </div>
 
               <div className="mt-6 grid grid-cols-2 gap-6 text-center md:grid-cols-4">
                 <div>
-                  <div className="text-xs text-zinc-500">最大功率 kW</div>
+                  <div className="text-xs text-zinc-500">{t('model.maxPowerKw')}</div>
                   <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxPower ?? "—"}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-zinc-500">最大马力 Hp</div>
+                  <div className="text-xs text-zinc-500">{t('model.maxHorsepowerHp')}</div>
                   <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxHp ?? "—"}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-zinc-500">最大扭矩 Nm</div>
+                  <div className="text-xs text-zinc-500">{t('model.maxTorqueNm')}</div>
                   <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxTorque ?? "—"}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-zinc-500">油耗 L/100km</div>
+                  <div className="text-xs text-zinc-500">{t('model.fuelConsumption')}</div>
                   <div className="mt-1 text-3xl font-semibold text-zinc-900">{statFuel ?? "—"}</div>
                 </div>
               </div>
@@ -971,7 +987,7 @@ export default function SeriesDetail() {
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
           {officialImages.length === 0 ? (
-            <div className="p-10 text-center text-sm text-zinc-600">暂无官图</div>
+            <div className="p-10 text-center text-sm text-zinc-600">{t('model.noOfficialImages')}</div>
           ) : (
             <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:p-6 lg:grid-cols-4">
               {officialImages.map((src, idx) => (
@@ -983,10 +999,10 @@ export default function SeriesDetail() {
                     setLightboxOpen(true);
                   }}
                   className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
-                  title="点击查看大图"
+                  title="{t('model.clickToEnlarge')}"
                 >
                   <div className="aspect-[4/3] w-full">
-                    <SafeImage src={src} alt={`${seriesFullname} 官图 ${idx + 1}`} className="h-full w-full object-cover" usePlaceholder />
+                    <SafeImage src={src} alt={`${seriesFullname} {t('model.officialImages')} ${idx + 1}`} className="h-full w-full object-cover" usePlaceholder />
                   </div>
                 </button>
               ))}
@@ -996,7 +1012,7 @@ export default function SeriesDetail() {
 
         <ImageLightbox
           open={lightboxOpen}
-          title={`${seriesFullname} 官图`}
+          title={`${seriesFullname} {t('model.officialImages')}`}
           images={officialImages}
           index={lightboxIndex}
           onChangeIndex={setLightboxIndex}

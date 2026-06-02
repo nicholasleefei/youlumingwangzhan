@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { geoGraticule10, geoOrthographic, geoPath } from "d3-geo";
 import { feature, mesh } from "topojson-client";
 import countriesTopo from "world-atlas/countries-110m.json";
@@ -97,6 +98,7 @@ function easeOutCubic(t: number): number {
 }
 
 export default function Globe(props: Props) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const sizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -497,9 +499,9 @@ export default function Globe(props: Props) {
         <canvas ref={canvasRef} className="h-full w-full border-none outline-none !pointer-events-auto" style={{ pointerEvents: 'auto' }} />
         {displayedCountry ? (
           <div className="pointer-events-none absolute top-4 right-4 rounded-xl border border-black/10 bg-white/85 px-4 py-2 text-sm text-black/70 backdrop-blur">
-            <div className="text-xs">国家</div>
+            <div className="text-xs">{t('home.globe.country')}</div>
             <div className="font-medium text-black">{displayedCountry.name}</div>
-            <div className="mt-1 text-xs">销量</div>
+            <div className="mt-1 text-xs">{t('home.globe.sales')}</div>
             <div className="font-semibold text-black">{displayedCountry.sales.toLocaleString()}</div>
           </div>
         ) : null}

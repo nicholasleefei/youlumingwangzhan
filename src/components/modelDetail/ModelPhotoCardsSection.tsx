@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import SafeImage from "@/components/SafeImage";
 import { CarFront, Camera, Sofa } from "lucide-react";
 
@@ -24,6 +25,7 @@ function Card({
   emptyText: string;
   onOpen: (index: number) => void;
 }) {
+  const { t } = useTranslation();
   const preview = images.slice(0, 9);
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
@@ -63,7 +65,7 @@ function Card({
                 onClick={() => onOpen(0)}
                 className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
-                查看全部（{images.length}）
+                {t('model.viewAll', { count: images.length })}
               </button>
             ) : null}
           </div>
@@ -73,11 +75,13 @@ function Card({
   );
 }
 
-export default function ModelPhotoCardsSection({ exterior, interior, official, onOpen }: Props) {
+export default function ModelPhotoCardsSection({
+  exterior, interior, official, onOpen }: Props) {
+  const { t } = useTranslation();
   const cards: Array<{ key: CardKey; title: string; images: string[]; icon: ReactNode; empty: string }> = [
-    { key: "exterior", title: "外观图", images: exterior, icon: <CarFront className="h-5 w-5" />, empty: "暂无外观图" },
-    { key: "interior", title: "内饰图", images: interior, icon: <Sofa className="h-5 w-5" />, empty: "暂无内饰图" },
-    { key: "official", title: "官方图", images: official, icon: <Camera className="h-5 w-5" />, empty: "暂无官方图" },
+    { key: "exterior", title: t("model.exteriorImages"), images: exterior, icon: <CarFront className="h-5 w-5" />, empty: t("common.noImage") },
+    { key: "interior", title: t("model.interiorImages"), images: interior, icon: <Sofa className="h-5 w-5" />, empty: t("common.noImage") },
+    { key: "official", title: t("model.officialImages"), images: official, icon: <Camera className="h-5 w-5" />, empty: t("common.noImage") },
   ];
 
   return (

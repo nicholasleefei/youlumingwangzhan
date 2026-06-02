@@ -11,7 +11,10 @@
   "servers": {
     "supabase": {
       "transport": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=xpksqkhgfqekysbebznv"
+      "url": "https://mcp.supabase.com/mcp?project_ref=xpksqkhgfqekysbebznv",
+      "headers": {
+        "Authorization": "Bearer YOUR_SUPABASE_MCP_TOKEN"
+      }
     }
   },
   "activeServers": ["supabase"]

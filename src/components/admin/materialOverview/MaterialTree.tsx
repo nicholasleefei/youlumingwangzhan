@@ -31,6 +31,8 @@ export default function MaterialTree(props: {
   onDeleteSeriesAsset: (seriesKey: NodeKey, series: DbSeries, kind: "exterior_vr" | "interior_vr" | "official_images") => void;
   onDeleteModelImages: (modelKey: NodeKey, model: DbModel, kind: "exterior" | "interior") => void;
   onClearSelection: () => void;
+  brandChecked: Set<string>;
+  onToggleBrandCheck: (brandId: string) => void;
 }) {
   const {
     onlyNormal,
@@ -54,6 +56,8 @@ export default function MaterialTree(props: {
     onDeleteSeriesAsset,
     onDeleteModelImages,
     onClearSelection,
+    brandChecked,
+    onToggleBrandCheck,
   } = props;
 
   const showOnlyNormal = onlyNormal ?? false;
@@ -110,9 +114,20 @@ export default function MaterialTree(props: {
           <div key={bKey} className="space-y-2">
             <div
               className={rowCls(bSelected)}
-              onClick={(e) => onNodeClick(e, bKey, "root", brandSiblings)}
-              onContextMenu={(e) => onNodeContextMenu(e, bKey, "root")}
             >
+              {/* Brand checkbox */}
+              <input
+                type="checkbox"
+                checked={brandChecked.has(b.id)}
+                onChange={() => onToggleBrandCheck(b.id)}
+                onClick={(e) => e.stopPropagation()}
+                className="shrink-0 rounded border-zinc-300 text-blue-600"
+              />
+              <div
+                className="flex-1 cursor-pointer"
+                onClick={(e) => onNodeClick(e, bKey, "root", brandSiblings)}
+                onContextMenu={(e) => onNodeContextMenu(e, bKey, "root")}
+              >
               <div className={leftCls}>
                 <button
                   type="button"
@@ -133,6 +148,7 @@ export default function MaterialTree(props: {
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <ActivityStatusPills value={b.activity_status} onChange={(st) => onSetSingleStatus("brand", b.id, st)} />
               </div>
+            </div>
             </div>
 
             {brandExpanded ? (

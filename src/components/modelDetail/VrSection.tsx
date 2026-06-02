@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import SequenceViewer from "@/components/modelDetail/SequenceViewer";
 import InteriorVRViewer from "@/components/modelDetail/InteriorVRViewer";
 import type { SeriesVrExteriorGroup, SeriesVrInteriorColorGroup, SeriesVrInteriorPositionGroup } from "@/components/modelDetail/modelDetailData";
@@ -24,6 +25,7 @@ function colorPreviewStyle(colorCode: string) {
 }
 
 export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, seriesExteriorGroups, seriesInteriorGroups }: Props) {
+  const { t } = useTranslation();
   const hasSeriesExterior = seriesExteriorGroups.length > 0;
   const hasSeriesInterior = seriesInteriorGroups.length > 0;
 
@@ -100,18 +102,18 @@ export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, se
   const label =
     tab === "vr_exterior"
       ? activeExteriorGroup?.color_name
-        ? `360 外观 - ${activeExteriorGroup.color_name}`
-        : "360 外观"
+        ? `${t("vr.360Exterior")} - ${activeExteriorGroup.color_name}`
+        : t("vr.360Exterior")
       : activeInteriorPosGroup?.position_name
-        ? `内饰 VR - ${activeInteriorColorGroup?.color_name ? activeInteriorColorGroup.color_name + ' - ' : ''}${activeInteriorPosGroup.position_name}`
-        : "内饰 VR";
+        ? `${t("vr.interiorVR")} - ${activeInteriorColorGroup?.color_name ? activeInteriorColorGroup.color_name + ' - ' : ''}${activeInteriorPosGroup.position_name}`
+        : t("vr.interiorVR");
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-zinc-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="text-base font-semibold text-zinc-900">VR 展示</div>
-          <div className="mt-1 text-xs text-zinc-500">支持外观 360 序列帧与 3D 全景内饰</div>
+          <div className="text-base font-semibold text-zinc-900">{t("vr.display")}</div>
+          <div className="mt-1 text-xs text-zinc-500">{t("vr.description")}</div>
         </div>
         <div className="inline-flex rounded-xl bg-zinc-100 p-1">
           <button
@@ -123,7 +125,7 @@ export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, se
                 : "rounded-lg px-4 py-2 text-xs font-semibold text-zinc-700 hover:text-zinc-900"
             }
           >
-            360 外观（{hasSeriesExterior ? seriesExteriorGroups.reduce((sum, g) => sum + (g.images?.length ?? 0), 0) : vrExterior.length}）
+            {t("vr.360Exterior")}（{hasSeriesExterior ? seriesExteriorGroups.reduce((sum, g) => sum + (g.images?.length ?? 0), 0) : vrExterior.length}）
           </button>
           <button
             type="button"
@@ -134,7 +136,7 @@ export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, se
                 : "rounded-lg px-4 py-2 text-xs font-semibold text-zinc-700 hover:text-zinc-900"
             }
           >
-            内饰 VR（{hasSeriesInterior ? seriesInteriorGroups.reduce((sum, g) => sum + g.positions.reduce((pSum, p) => pSum + (p.images?.length ?? 0), 0), 0) : vrInterior.length}）
+            {t("vr.interiorVR")}（{hasSeriesInterior ? seriesInteriorGroups.reduce((sum, g) => sum + g.positions.reduce((pSum, p) => pSum + (p.images?.length ?? 0), 0), 0) : vrInterior.length}）
           </button>
         </div>
       </div>
@@ -155,7 +157,7 @@ export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, se
                   }
                 >
                   <span className="inline-block h-3.5 w-3.5 rounded-full" style={colorPreviewStyle(g.color_code)} />
-                  <span className="max-w-28 truncate">{g.color_name || g.color_code || "未命名颜色"}</span>
+                  <span className="max-w-28 truncate">{g.color_name || g.color_code || t("model.unnamedColor")}</span>
                   <span className={active ? "text-blue-700/80" : "text-zinc-500"}>({g.images?.length ?? 0})</span>
                 </button>
               );
@@ -181,7 +183,7 @@ export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, se
                     }
                   >
                     <span className="inline-block h-3.5 w-3.5 rounded-full" style={colorPreviewStyle(g.color_value || '')} />
-                    <span className="max-w-28 truncate">{g.color_name || "未命名颜色"}</span>
+                    <span className="max-w-28 truncate">{g.color_name || t("model.unnamedColor")}</span>
                   </button>
                 );
               })}
@@ -203,7 +205,7 @@ export default function VrSection({ tab, onChangeTab, vrExterior, vrInterior, se
                           : "rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                       }
                     >
-                      {p.position_name || p.position || "未命名位置"}
+                      {p.position_name || p.position || t("common.unnamedPosition")}
                     </button>
                   );
                 })}

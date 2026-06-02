@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { RotateCcw } from "lucide-react";
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export default function InteriorVRViewer({ label, images, variant = "card" }: Props) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export default function InteriorVRViewer({ label, images, variant = "card" }: Pr
       }
       
       if (!images || images.length < 6) {
-        setError("全景图数量不足 6 张");
+        setError(t("model.panoramaInsufficient"));
         return;
       }
       
@@ -87,10 +89,10 @@ export default function InteriorVRViewer({ label, images, variant = "card" }: Pr
         });
       } catch (err: any) {
         console.error("Pannellum init error:", err);
-        setError("全景图加载失败");
+        setError(t("model.panoramaLoadFailed"));
       }
     }).catch(err => {
-      if (isMounted) setError("全景图加载失败");
+      if (isMounted) setError(t("model.panoramaLoadFailed"));
     });
 
     return () => {
@@ -134,11 +136,11 @@ export default function InteriorVRViewer({ label, images, variant = "card" }: Pr
         }
       >
         <RotateCcw className="h-4 w-4" />
-        重置视角
+        {t("model.resetView")}
       </button>
       {images && images.length >= 6 && !error ? (
         <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-full border border-zinc-200 bg-white/80 px-3 py-1 text-xs text-zinc-700 backdrop-blur">
-          鼠标拖拽可环视车内
+          {t("model.dragToLookAround")}
         </div>
       ) : null}
     </div>
@@ -151,7 +153,7 @@ export default function InteriorVRViewer({ label, images, variant = "card" }: Pr
       <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-900 truncate">{label}</div>
-          <div className="mt-0.5 text-xs text-zinc-500">3D 全景内饰</div>
+          <div className="mt-0.5 text-xs text-zinc-500">{t("model.d3PanoramaInterior")}</div>
         </div>
         <button
           type="button"
@@ -160,7 +162,7 @@ export default function InteriorVRViewer({ label, images, variant = "card" }: Pr
           className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
         >
           <RotateCcw className="h-4 w-4" />
-          重置视角
+          {t("model.resetView")}
         </button>
       </div>
       {viewer}

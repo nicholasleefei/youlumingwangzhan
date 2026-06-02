@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { supabase } from "@/utils/supabaseClient";
 import BatchOperations from "@/components/admin/BatchOperations";
@@ -8,6 +8,19 @@ import { confirmJumdataQueryIfExists } from "@/utils/jumdataQueryGuard";
 import { fieldLabels, tableFieldConfigs, getFieldLabel, getActivityStatusLabel, getActivityStatusColor } from "@/utils/fieldLabels";
 import type { StagedItem } from "@/utils/stagedCrud";
 import { proxiedImageUrl } from "@/utils/proxyUrl";
+import { clearEntityTranslationCache } from "@/utils/entityTranslation";
+import { LOCALE_LABELS, type Locale } from "@/i18n/locales";
+
+type TranslationProgress = {
+  open: boolean;
+  entityType: string;
+  entityName: string;
+  jmId: number;
+  logs: Array<{ locale: string; key: string; source: string; translated: string }>;
+  errors: Array<{ locale: string; error: string }>;
+  done: number;
+  total: number;
+};
 
 type JmBrand = {
   depth: number;
@@ -59,11 +72,113 @@ export default function AdminBrands() {
   const [searchQuery, setSearchQuery] = useState("");
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [commitBusy, setCommitBusy] = useState(false);
+  const [translatingId, setTranslatingId] = useState<number | null>(null);
+  const [transProgress, setTransProgress] = useState<TranslationProgress>({
+    open: false, entityType: "", entityName: "", jmId: 0, logs: [], errors: [], done: 0, total: 0,
+  });
+  const [batchTranslating, setBatchTranslating] = useState(false);
+  const batchAbortRef = useRef(false);
 
-  // 批量操作状态
+  async function translateSingle(jmId: number, entityName: string) {
+    setTranslatingId(jmId);
+    const targetLocales = (await supabase.from("site_config").select("value").eq("key", "db_translation_ai").maybeSingle()).data?.value?.target_locales ?? ["en"];
+    setTransProgress({ open: true, entityType: "brand", entityName, jmId, logs: [], errors: [], done: 0, total: targetLocales.filter((l: string) => l !== "zh-CN").length });
+    try {
+      const { data, error } = await supabase.functions.invoke("db-translate", {
+        body: { action: "translate_single", entityType: "brand", jmId: String(jmId) },
+      });
+      if (error) throw error;
+      if (data?.details?.length) {
+        setTransProgress(prev => {
+          const logs: TranslationProgress["logs"] = [];
+          const errors: TranslationProgress["errors"] = [];
+          for (const d of data.details) {
+            if (d.error) errors.push({ locale: d.locale, error: d.error });
+            else logs.push({ locale: d.locale, key: d.key, source: d.source, translated: d.translated });
+          }
+          return { ...prev, logs, errors, done: logs.length + errors.length };
+        });
+        for (const d of data.details) {
+          if (d.error) setError(`翻译失败 [${d.locale}]: ${d.error}`);
+        }
+      }
+      clearEntityTranslationCache();
+      await loadDbBrands();
+    } catch (e: any) {
+      setTransProgress(prev => ({ ...prev, errors: [...prev.errors, { locale: "-", error: e?.message || "翻译失败" }] }));
+      setError(e?.message || "翻译失败");
+    } finally {
+      setTranslatingId(null);
+    }
+  }
+
+  async function batchTranslate() {
+    if (selectedIds.length === 0) return;
+    const selectedBrands = filteredViewBrands.filter(b => selectedIds.includes(b.id));
+    if (selectedBrands.length === 0) return;
+
+    setBatchTranslating(true);
+    batchAbortRef.current = false;
+    setTransProgress({
+      open: true,
+      entityType: "brand",
+      entityName: `批量翻译 ${selectedBrands.length} 个品牌`,
+      jmId: 0,
+      logs: [],
+      errors: [],
+      done: 0,
+      total: selectedBrands.length,
+    });
+
+    let allLogs: TranslationProgress["logs"] = [];
+    let allErrors: TranslationProgress["errors"] = [];
+    let completed = 0;
+    const CONCURRENCY = 100;
+    // Dispatch in batches to avoid overwhelming Supabase
+    const BATCH_SIZE = 20;
+    const queue = [...selectedBrands];
+    async function runBatch(items: typeof selectedBrands) {
+      return Promise.all(items.map(brand => (async () => {
+        if (batchAbortRef.current) return;
+        try {
+          const { data, error } = await supabase.functions.invoke("db-translate", {
+            body: { action: "translate_single", entityType: "brand", jmId: String(brand.jm_id) },
+          });
+          if (error) {
+            allErrors.push({ locale: "-", error: `${brand.name}: ${error.message}` });
+          } else if (data?.details?.length) {
+            for (const d of data.details) {
+              if (d.error) allErrors.push({ locale: d.locale, error: `${brand.name}: ${d.error}` });
+              else allLogs.push({ locale: d.locale, key: d.key, source: d.source, translated: d.translated });
+            }
+          }
+        } catch (e: any) { allErrors.push({ locale: "-", error: `${brand.name}: ${e?.message || "失败"}` }); }
+        completed++;
+        setTransProgress(prev => ({ ...prev, entityName: `品牌 ${completed}/${selectedBrands.length}`, done: completed, logs: allLogs.slice(-100), errors: allErrors }));
+      })()));
+    }
+    while (queue.length > 0) {
+      if (batchAbortRef.current) break;
+      const batch = queue.splice(0, BATCH_SIZE);
+      await runBatch(batch);
+    }
+
+    setTransProgress(prev => ({
+      ...prev,
+      entityName: batchAbortRef.current ? `已中断 · 完成 ${completed}/${selectedBrands.length}` : `完成 ${completed} 个品牌`,
+      done: completed,
+      logs: allLogs.slice(-100),
+      errors: allErrors,
+    }));
+    setBatchTranslating(false);
+    clearEntityTranslationCache();
+    await loadDbBrands();
+  }
+
+  function stopBatchTranslate() {
+    batchAbortRef.current = true;
+  }
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  // 批量选择控制
   const handleSelectAll = () => {
     if (selectedIds.length === dbBrands.length) {
       handleClearSelection();
@@ -762,6 +877,70 @@ export default function AdminBrands() {
             loading={dbBrandsLoading}
           />
 
+          {/* 翻译按钮组 */}
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              type="button"
+              disabled={batchTranslating}
+              onClick={async () => {
+                const allBrands = filteredViewBrands.filter(b => b.jm_id > 0);
+                if (allBrands.length === 0) return;
+                const targetLocales = (await supabase.from("site_config").select("value").eq("key", "db_translation_ai").maybeSingle()).data?.value?.target_locales ?? ["en"];
+                setBatchTranslating(true);
+                batchAbortRef.current = false;
+                setTransProgress({ open: true, entityType: "brand", entityName: `批量翻译 ${allBrands.length} 个品牌`, jmId: 0, logs: [], errors: [], done: 0, total: allBrands.length });
+                let allLogs: TranslationProgress["logs"] = [];
+                let allErrors: TranslationProgress["errors"] = [];
+                let completed = 0;
+                const CONCURRENCY = 100; // 100 concurrent translations
+                const queue = [...allBrands];
+
+                async function worker() {
+                  while (queue.length > 0) {
+                    if (batchAbortRef.current) return;
+                    const brand = queue.shift()!;
+                    try {
+                      const { data, error } = await supabase.functions.invoke("db-translate", { body: { action: "translate_single", entityType: "brand", jmId: String(brand.jm_id) } });
+                      if (error) allErrors.push({ locale: "-", error: `${brand.name}: ${error.message}` });
+                      else if (data?.details?.length) {
+                        for (const d of data.details) {
+                          if (d.error) allErrors.push({ locale: d.locale, error: `${brand.name}: ${d.error}` });
+                          else allLogs.push({ locale: d.locale, key: d.key, source: d.source, translated: d.translated });
+                        }
+                      }
+                    } catch (e: any) { allErrors.push({ locale: "-", error: `${brand.name}: ${e?.message || "失败"}` }); }
+                    completed++;
+                    setTransProgress(prev => ({ ...prev, entityName: `品牌 ${completed}/${allBrands.length}`, done: completed, logs: allLogs.slice(-100), errors: allErrors }));
+                  }
+                }
+
+                await Promise.all(Array.from({ length: Math.min(CONCURRENCY, allBrands.length) }, () => worker()));
+                setTransProgress(prev => ({ ...prev, entityName: batchAbortRef.current ? `已中断 · 完成 ${completed}/${allBrands.length}` : `完成 ${completed} 个品牌`, done: completed, logs: allLogs.slice(-100), errors: allErrors }));
+                setBatchTranslating(false);
+                clearEntityTranslationCache();
+                await loadDbBrands();
+              }}
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {batchTranslating ? "翻译中..." : `一键翻译全部品牌（${filteredViewBrands.filter(b => b.jm_id > 0).length}）`}
+            </button>
+            {batchTranslating ? (
+              <button type="button" onClick={() => { batchAbortRef.current = true; }} className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-200 transition-colors">
+                停止
+              </button>
+            ) : null}
+            {selectedIds.length > 0 ? (
+              <button
+                type="button"
+                disabled={batchTranslating}
+                onClick={() => void batchTranslate()}
+                className="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors"
+              >
+                翻译已选（{selectedIds.length}）
+              </button>
+            ) : null}
+          </div>
+
           <BulkEditBar
             tableName="brands"
             selectedIds={selectedIds}
@@ -926,6 +1105,14 @@ export default function AdminBrands() {
                       <td className="whitespace-nowrap px-4 py-3">
                         <button
                           type="button"
+                          onClick={() => translateSingle(brand.jm_id, brand.name)}
+                          disabled={translatingId === brand.jm_id}
+                          className="text-sm font-medium text-blue-600 hover:text-blue-800 disabled:text-blue-300 mr-3"
+                        >
+                          {translatingId === brand.jm_id ? "翻译中..." : "翻译"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => toggleDeleteRow(brand.id)}
                           className={`text-sm font-semibold ${deleted ? 'text-zinc-600 hover:text-zinc-900' : 'text-red-600 hover:text-red-800'}`}
                         >
@@ -1007,6 +1194,101 @@ export default function AdminBrands() {
           {error}
         </div>
       )}
+
+      {/* Translation Progress Modal */}
+      {transProgress.open ? (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4" onClick={() => { if (translatingId) return; setTransProgress(prev => ({ ...prev, open: false })); }}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-zinc-200">
+              <div>
+                <h3 className="text-lg font-bold text-zinc-900">翻译进度</h3>
+                <p className="text-sm text-zinc-500 mt-0.5">
+                  {transProgress.entityType === "brand" ? "品牌" : transProgress.entityType === "series" ? "车系" : transProgress.entityType === "model_detail" ? "车型" : transProgress.entityType}
+                  {" · "}{transProgress.entityName}
+                  {translatingId ? (
+                    <span className="ml-2 inline-flex items-center gap-1 text-blue-600">
+                      <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      翻译中...
+                    </span>
+                  ) : (
+                    <span className="ml-2 text-green-600">已完成</span>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTransProgress(prev => ({ ...prev, open: false }))}
+                className="text-zinc-400 hover:text-zinc-600 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-5">
+              {/* Progress bar */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between text-sm text-zinc-600 mb-1">
+                  <span>{transProgress.done} / {transProgress.total} 个语言</span>
+                </div>
+                <div className="w-full bg-zinc-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-300 ${translatingId ? "bg-blue-500 animate-pulse" : "bg-green-500"}`}
+                    style={{ width: `${transProgress.total > 0 ? Math.round((transProgress.done / transProgress.total) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Logs */}
+              {transProgress.logs.length > 0 ? (
+                <div className="mb-3">
+                  <div className="text-xs font-semibold text-zinc-500 uppercase mb-2">翻译详情</div>
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 max-h-48 overflow-y-auto space-y-2">
+                    {transProgress.logs.map((l, i) => (
+                      <div key={i} className="text-xs bg-white rounded-lg border border-zinc-100 p-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 text-[10px] font-semibold">{LOCALE_LABELS[l.locale as Locale] || l.locale}</span>
+                          <span className="text-zinc-400 font-mono">{l.key}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-500 truncate max-w-[45%]">{l.source}</span>
+                          <span className="text-zinc-300">→</span>
+                          <span className="text-green-700 font-medium truncate max-w-[45%]">{l.translated}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Errors */}
+              {transProgress.errors.length > 0 ? (
+                <div>
+                  <div className="text-xs font-semibold text-red-500 uppercase mb-2">错误</div>
+                  <div className="space-y-1">
+                    {transProgress.errors.map((e, i) => (
+                      <div key={i} className="text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
+                        [{LOCALE_LABELS[e.locale as Locale] || e.locale}] {e.error}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {transProgress.logs.length === 0 && transProgress.errors.length === 0 && translatingId ? (
+                <div className="text-center text-sm text-zinc-400 py-8">正在调用 AI 翻译接口...</div>
+              ) : null}
+            </div>
+            <div className="p-4 border-t border-zinc-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTransProgress(prev => ({ ...prev, open: false }))}
+                className="px-5 py-2 bg-zinc-100 text-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-200 transition-colors"
+              >
+                {translatingId ? "后台运行" : "关闭"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

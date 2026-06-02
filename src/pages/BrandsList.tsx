@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+﻿import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { normalizeLocale, type Locale } from "@/i18n/locales";
@@ -162,7 +162,7 @@ export default function BrandsList() {
     async function fetchBrands() {
       setLoading(true);
       try {
-        const [brandData, seriesData] = await Promise.all([listBrands(), listSeries({})]);
+        const [brandData, seriesData] = await Promise.all([listBrands({ locale }), listSeries({ locale })]);
         const rootBrands = brandData.filter((b) => b.depth === 1);
         setBrands(rootBrands);
 
@@ -252,7 +252,7 @@ export default function BrandsList() {
     setLoadingSeries(true);
     try {
       // 加载该品牌下的所有车系
-      const brandSeries = await listSeries({ brandId: brand.id, brandJmId: brand.jm_id });
+      const brandSeries = await listSeries({ brandId: brand.id, brandJmId: brand.jm_id, locale });
       setSeries(brandSeries);
 
       const seriesJmIds = brandSeries.map((s) => s.jm_id).filter((x) => typeof x === "number" && Number.isFinite(x));
@@ -298,7 +298,7 @@ export default function BrandsList() {
 
       const extractKmFromText = (s: any): number[] => {
         const txt = typeof s === 'string' ? s : '';
-        const nums = txt.match(/\d{2,4}(?:\.\d+)?(?=\s*(?:km|公里))/gi);
+        const nums = txt.match(/\d{2,4}(?:\.\d+)?(?=\s*(?:km|{t('common.km')}))/gi);
         if (!nums) return [];
         return nums.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
       };
@@ -590,7 +590,7 @@ export default function BrandsList() {
                 {loading ? (
                   <div className="py-6 text-center text-sm text-zinc-600">{t("common.loading")}</div>
                 ) : filteredBrands.length === 0 ? (
-                  <div className="py-6 text-center text-sm text-zinc-600">暂无匹配品牌</div>
+                  <div className="py-6 text-center text-sm text-zinc-600">{t('brands.noMatch')}</div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     {filteredBrands.map((brand) => {
@@ -639,7 +639,7 @@ export default function BrandsList() {
           <div className="lg:col-span-8">
             {!selectedBrand ? (
               <div className="rounded-2xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-600 shadow-sm">
-                请选择左侧品牌查看车系
+                {t('series.selectBrandHint')}
               </div>
             ) : (
               <div className="space-y-4">
@@ -654,19 +654,19 @@ export default function BrandsList() {
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="text-xs text-zinc-500">品牌</div>
+                        <div className="text-xs text-zinc-500">{t('common.brand')}</div>
                         <div className="truncate text-lg font-semibold text-zinc-900">{selectedBrandName}</div>
                       </div>
                     </div>
 
-                    <div className="text-sm text-zinc-600">共 {series.length} 个车系</div>
+                    <div className="text-sm text-zinc-600">{t('series.countSeries', { count: series.length })}</div>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-zinc-900" id="series-section">{t("brands.allModels", "全部车系")}</div>
-                    <Link to={`${base}/brands`} className="text-xs font-semibold text-blue-700 hover:underline">返回全部品牌</Link>
+                    <Link to={`${base}/brands`} className="text-xs font-semibold text-blue-700 hover:underline">{t('series.backToAllBrands')}</Link>
                   </div>
 
                   {loadingSeries ? (
@@ -696,8 +696,8 @@ export default function BrandsList() {
                         const rangeText =
                           typeof meta.rangeMinKm === 'number' && typeof meta.rangeMaxKm === 'number'
                             ? meta.rangeMinKm === meta.rangeMaxKm
-                              ? `${meta.rangeMinKm}公里`
-                              : `${meta.rangeMinKm}-${meta.rangeMaxKm}公里`
+                              ? `${meta.rangeMinKm}${t('common.km')}`
+                              : `${meta.rangeMinKm}-${meta.rangeMaxKm}${t('common.km')}`
                             : null;
 
                         const isAdding = addingSeriesId === item.id;
@@ -723,14 +723,14 @@ export default function BrandsList() {
 
                               <div className="p-4">
                                 <div className="text-sm text-zinc-600">
-                                  级别/续航里程：
+                                  {t('series.levelAndRange')}
                                   <span className="text-zinc-900">{meta.sizeType || "—"}</span>
                                   <span className="text-zinc-400"> / </span>
                                   <span className="text-zinc-900">{rangeText || "—"}</span>
                                 </div>
 
                                 <div className="mt-2 flex items-center gap-2">
-                                  <div className="text-sm text-zinc-600">颜色：</div>
+                                  <div className="text-sm text-zinc-600">{t('common.color')}：</div>
                                   {Array.isArray(meta.exteriorSwatches) && meta.exteriorSwatches.length > 0 ? (
                                     <div className="flex items-center gap-1.5">
                                       {meta.exteriorSwatches.slice(0, 9).map((c: string) => (
@@ -749,7 +749,7 @@ export default function BrandsList() {
 
                             <div className="flex items-center justify-between gap-3 px-4 pb-4">
                               <Link to={`${base}/series/${item.id}`} className="text-sm font-semibold text-zinc-900 hover:text-blue-700">
-                                查看车系
+                                {t('series.viewSeries')}
                               </Link>
                               <button
                                 type="button"

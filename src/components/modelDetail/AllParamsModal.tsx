@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import Modal from "@/components/ui/Modal";
 import { flattenParams } from "@/utils/paramFlatten";
 
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export default function AllParamsModal({ open, title, payload, onClose }: Props) {
+  const { t } = useTranslation();
   const items = flattenParams(payload, { maxItems: 800, maxDepth: 8 });
 
   return (
@@ -20,17 +22,17 @@ export default function AllParamsModal({ open, title, payload, onClose }: Props)
           onClick={onClose}
           className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
         >
-          关闭
+          {t('common.close')}
         </button>
       </div>
       <div className="max-h-[78vh] overflow-auto px-5 py-4">
         {items.length === 0 ? (
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">暂无可展示的参数</div>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">{t('model.noParamsToShow')}</div>
         ) : (
           <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
             <div className="grid grid-cols-12 gap-0 border-b border-zinc-200 px-4 py-3 text-xs font-semibold text-zinc-500">
-              <div className="col-span-5">参数</div>
-              <div className="col-span-7">值</div>
+              <div className="col-span-5">{t('model.param')}</div>
+              <div className="col-span-7">{t('model.value')}</div>
             </div>
             <div className="divide-y divide-zinc-200">
               {items.map((it) => (

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import SafeImage from "@/components/SafeImage";
 
 type ShotTab = "exterior" | "interior" | "detail";
@@ -12,20 +13,21 @@ type Props = {
 };
 
 export default function RealShotsSection({ exterior, interior, detail, tab, onChangeTab, onOpen }: Props) {
+  const { t } = useTranslation();
   const hasDetailTab = detail.length > 0;
   const tabs: Array<{ key: ShotTab; label: string; count: number; show: boolean }> = [
-    { key: "exterior", label: "外观", count: exterior.length, show: true },
-    { key: "interior", label: "内饰", count: interior.length, show: true },
-    { key: "detail", label: "细节", count: detail.length, show: hasDetailTab },
+    { key: "exterior", label: t("model.exterior"), count: exterior.length, show: true },
+    { key: "interior", label: t("model.interior"), count: interior.length, show: true },
+    { key: "detail", label: t("model.detail"), count: detail.length, show: hasDetailTab },
   ];
 
   const active = tab === "exterior" ? exterior : tab === "interior" ? interior : detail;
-  const activeTitle = tab === "exterior" ? "实拍 - 外观" : tab === "interior" ? "实拍 - 内饰" : "实拍 - 细节";
+  const activeTitle = tab === "exterior" ? t("model.realShotsExterior") : tab === "interior" ? t("model.realShotsInterior") : t("model.realShotsDetail");
 
   return (
     <div className="rounded-2xl border border-border bg-bg-card/60 shadow-xl shadow-blue-900/10 backdrop-blur-md">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-        <div className="text-lg font-semibold text-text-primary">实拍展示</div>
+        <div className="text-lg font-semibold text-text-primary">{t("model.realShots")}</div>
         <div className="flex flex-wrap items-center gap-2">
           {tabs
             .filter((t) => t.show)
@@ -48,7 +50,7 @@ export default function RealShotsSection({ exterior, interior, detail, tab, onCh
 
       <div className="p-5">
         {active.length === 0 ? (
-          <div className="rounded-xl border border-border bg-bg-card/40 p-8 text-center text-sm text-text-tertiary">暂无{activeTitle}</div>
+          <div className="rounded-xl border border-border bg-bg-card/40 p-8 text-center text-sm text-text-tertiary">{t("common.noImage")}</div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {active.slice(0, 12).map((src, idx) => (

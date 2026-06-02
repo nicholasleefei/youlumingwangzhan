@@ -10,8 +10,10 @@ export default function DeleteConfirmModal(props: {
   onChangeConfirmText: (v: string) => void;
   onClose: () => void;
   onConfirm: () => void;
+  /** Extra content (e.g. checkboxes) for brand_clear */
+  children?: React.ReactNode;
 }) {
-  const { open, title, description, confirmText, busy, onChangeConfirmText, onClose, onConfirm } = props;
+  const { open, title, description, confirmText, busy, onChangeConfirmText, onClose, onConfirm, children } = props;
   const ok = confirmText.trim().toUpperCase() === "DELETE";
 
   return (
@@ -28,6 +30,8 @@ export default function DeleteConfirmModal(props: {
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {description} 请输入 <span className="font-semibold">DELETE</span> 以确认。
         </div>
+
+        {children}
 
         <div className="mb-6">
           <label className={labelCls()}>确认文本</label>

@@ -9,8 +9,9 @@ import AdminCustomerManagement from "@/pages/admin/AdminCustomerManagement";
 import AdminPermissionApproval from "@/pages/admin/AdminPermissionApproval";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminKnowledgeBase from "@/pages/admin/AdminKnowledgeBase";
+import AdminDbTranslation from "@/pages/admin/AdminDbTranslation";
 
-type Tab = "content-publish" | "material-asset" | "customer-inquiries" | "permission-approval" | "system-config" | "knowledge-base";
+type Tab = "content-publish" | "material-asset" | "customer-inquiries" | "permission-approval" | "system-config" | "knowledge-base" | "translation";
 
 type AdminProfile = {
   id: string;
@@ -276,6 +277,9 @@ export default function AdminApp() {
             <button type="button" className={tabCls(tab === "knowledge-base")} onClick={() => setTab("knowledge-base")}>
               知识库管理
             </button>
+            <button type="button" className={tabCls(tab === "translation")} onClick={() => setTab("translation")}>
+              翻译管理
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
@@ -306,6 +310,7 @@ export default function AdminApp() {
           {tab === "permission-approval" ? <AdminPermissionApproval /> : null}
           {tab === "system-config" ? <AdminSettings /> : null}
           {tab === "knowledge-base" ? <AdminKnowledgeBase /> : null}
+          {tab === "translation" ? <AdminDbTranslation /> : null}
         </div>
       </main>
     </div>
