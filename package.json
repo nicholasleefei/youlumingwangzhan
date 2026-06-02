@@ -75,6 +75,9 @@
     "vitest": "^2.1.9"
   },
   "description": "- 语言文件：`src/i18n/messages/*.json`（`en.json` 作为主语言基准）。\r - 当你新增/修改页面文案并新增 `t(\"...\")` 键后：\r   - `npm.cmd run i18n:sync`：自动补齐缺失键（其它语言默认回填英文），并生成报告 `.trae/i18n/report.json`。\r   - `npm.cmd run i18n:check`：只校验是否缺少键（不写文件）。\r   - `npm.cmd run i18n:audit`：生成翻译覆盖审计报告（哪些语言仍大量等同英文）。",
+  "engines": {
+    "node": "20.x"
+  },
   "main": "eslint.config.js",
   "keywords": [],
   "author": "",
