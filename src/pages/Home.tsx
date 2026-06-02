@@ -513,12 +513,6 @@ export default function Home() {
                               <div className="mt-5 h-px bg-black/10" />
 
                               <div className="mt-6 flex flex-wrap items-center gap-3">
-                                <Link
-                                  to={`/${locale}/model/${m.model_id}`}
-                                  className="inline-flex items-center justify-center rounded-xl border border-black/15 bg-white/80 px-4 py-2 text-sm font-semibold text-black hover:bg-white"
-                                >
-                                  {t('action.exploreVehicles')}
-                                </Link>
                                 {m.series_id ? (
                                   <Link
                                     to={`/${locale}/series/${m.series_id}`}
