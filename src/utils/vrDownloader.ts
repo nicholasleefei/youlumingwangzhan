@@ -97,7 +97,10 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-const PROXY_BASE = '';
+// Dev: Vite proxies /proxy -> localhost:3002 (proxy-server.mjs)
+// Prod: /api/proxy/* maps to Vercel serverless functions
+const PROXY_PREFIX = import.meta.env.DEV ? '/proxy' : '/api/proxy';
+
 
 async function fetchWithRetry(
   url: string,
@@ -110,13 +113,13 @@ async function fetchWithRetry(
 
   if (url.startsWith('https://www.autohome.com.cn')) {
     const path = url.replace('https://www.autohome.com.cn/', '');
-    proxyUrl = `/proxy/autohome/${path}`;
+    proxyUrl = `${PROXY_PREFIX}/autohome/${path}`;
   } else if (url.startsWith('https://m.autohome.com.cn')) {
     const path = url.replace('https://m.autohome.com.cn/', '');
-    proxyUrl = `/proxy/autohome/${path}`;
+    proxyUrl = `${PROXY_PREFIX}/autohome/${path}`;
   } else if (url.startsWith('https://pano.autohome.com.cn')) {
     const path = url.replace('https://pano.autohome.com.cn/', '');
-    proxyUrl = `/proxy/pano/${path}`;
+    proxyUrl = `${PROXY_PREFIX}/pano/${path}`;
   }
 
   if (cacheBust) {
@@ -174,7 +177,7 @@ async function fetchWithRetry(
 }
 
 function getImageProxyUrl(url: string): string {
-  return `/proxy/image?url=${encodeURIComponent(url)}`;
+  return `${PROXY_PREFIX}/image?url=${encodeURIComponent(url)}`;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

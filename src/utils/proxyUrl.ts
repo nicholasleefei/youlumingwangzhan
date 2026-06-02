@@ -1,8 +1,10 @@
 export function proxiedImageUrl(url: string | null | undefined) {
   if (!url) return url ?? null;
 
+  const proxyPrefix = import.meta.env.DEV ? '/proxy' : '/api/proxy';
+
   if (import.meta.env.DEV) {
-    return `/proxy/image?url=${encodeURIComponent(url)}`;
+    return `${proxyPrefix}/image?url=${encodeURIComponent(url)}`;
   }
 
   const host = window.location.hostname;
