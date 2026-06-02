@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import LocaleLayout from "@/routes/LocaleLayout";
 import RootRedirect from "@/routes/RootRedirect";
 import Home from "@/pages/Home";
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/admin" element={<AdminApp />} />
         <Route path="*" element={<RootRedirect />} />
       </Routes>
+      <Analytics />
     </Router>
   );
 }
