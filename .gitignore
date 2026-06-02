@@ -78,3 +78,5 @@ analyze_all_fields.py
 analyze_fields.py
 database-tool.py
 find_missing_fields.py
+
+.vercel
