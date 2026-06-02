@@ -1615,6 +1615,117 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
     }
   }
 
+  async function handleBatchDownloadModelImages() {
+    if (!selectedSeriesId || dbModels.length === 0) return;
+
+    setModelDownloading(true);
+    setModelDownloadProgress(null);
+    setError(null);
+    setModelDownloadLogs([]);
+
+    const seriesName = dbSeries.find(s => s.jm_id === selectedSeriesId)?.name || '';
+    addModelLog(`批量下载：${seriesName} 下 ${dbModels.length} 个车型的外观图和内饰图`);
+
+    try {
+      for (let i = 0; i < dbModels.length; i++) {
+        const model = dbModels[i];
+        const modelName = model.name || '';
+        const modelJmId = model.jm_id;
+        const seriesJmId = model.series_jm_id;
+        const brandJmId = (model as any).brand_jm_id || 0;
+
+        // Resolve brand name
+        let brandName = '';
+        const { data: brandData } = await supabase.from('brands').select('name').eq('jm_id', brandJmId).single();
+        if (brandData) brandName = brandData.name || '';
+
+        for (const category of ["exterior", "interior"] as const) {
+          const label = category === "exterior" ? "外观图" : "内饰图";
+          addModelLog(`[${i + 1}/${dbModels.length}] ${modelName}: 开始下载${label}`);
+
+          try {
+            const result = await downloadImagesForModelCategory(
+              seriesJmId,
+              brandName,
+              seriesName,
+              modelName,
+              category,
+              { limit: 24 },
+              (progress) => {
+                setModelDownloadProgress({
+                  ...progress,
+                  message: `[${i + 1}/${dbModels.length}] ${modelName} ${label}: ${progress.message}`,
+                });
+              }
+            );
+
+            if (result.images.length > 0) {
+              // Upload images to storage and save to model_image_config
+              const uploadedUrls: string[] = [];
+              for (let j = 0; j < result.images.length; j++) {
+                const dataUrl = result.images[j];
+                try {
+                  const res = await fetch(dataUrl);
+                  const blob = await res.blob();
+                  const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+                  const path = `images/models/${modelJmId}/${category}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+                  const { error: upErr } = await supabase.storage.from('car-images').upload(path, blob, {
+                    upsert: true,
+                    contentType: blob.type,
+                  });
+                  if (upErr) throw upErr;
+                  const { data: urlData } = supabase.storage.from('car-images').getPublicUrl(path);
+                  uploadedUrls.push(urlData.publicUrl);
+                } catch {
+                  // skip failed uploads
+                }
+              }
+
+              if (uploadedUrls.length > 0) {
+                // Upsert into model_image_config
+                const { data: existingCfg } = await supabase.from('model_image_config').select('id').eq('model_jm_id', modelJmId).maybeSingle();
+                if (existingCfg) {
+                  const existingKey = category === "exterior" ? "exterior_images" : "interior_images";
+                  const { data: row } = await supabase.from('model_image_config').select(existingKey).eq('model_jm_id', modelJmId).single();
+                  const existing = (row as any)?.[existingKey] || [];
+                  await supabase.from('model_image_config').update({
+                    [existingKey]: [...existing, ...uploadedUrls],
+                  }).eq('model_jm_id', modelJmId);
+                } else {
+                  await supabase.from('model_image_config').insert({
+                    model_jm_id: modelJmId,
+                    model_id: model.id || null,
+                    model_name: modelName,
+                    series_jm_id: seriesJmId,
+                    series_name: seriesName,
+                    brand_jm_id: brandJmId,
+                    brand_name: brandName,
+                    exterior_images: category === "exterior" ? uploadedUrls : [],
+                    interior_images: category === "interior" ? uploadedUrls : [],
+                    official_images: [],
+                  });
+                }
+              }
+
+              addModelLog(`[${i + 1}/${dbModels.length}] ${modelName} ${label}: 完成，${uploadedUrls.length}/${result.images.length} 张上传成功`);
+            } else {
+              addModelLog(`[${i + 1}/${dbModels.length}] ${modelName} ${label}: 未找到图片`);
+            }
+          } catch (e: any) {
+            addModelLog(`[${i + 1}/${dbModels.length}] ${modelName} ${label}: 失败 - ${e?.message || e}`);
+          }
+        }
+      }
+      addModelLog('批量下载完成');
+      setError('批量下载完成，已自动保存到数据库');
+    } catch (e: any) {
+      addModelLog(`批量下载失败: ${e?.message || e}`);
+      setError(`批量下载失败: ${e?.message || e}`);
+    } finally {
+      setModelDownloading(false);
+    }
+  }
+
   async function saveModelImageConfig() {
     if (!modelImageConfig) return;
     setLoading(true);
@@ -2529,6 +2640,18 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
                       }`}
                     >
                       {modelDownloading ? '下载中...' : '内饰图下载'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBatchDownloadModelImages}
+                      disabled={modelDownloading || loading}
+                      className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                        modelDownloading
+                          ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed'
+                          : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-200'
+                      }`}
+                    >
+                      {modelDownloading ? '下载中...' : '批量下载本车系'}
                     </button>
                     <button
                       type="button"

@@ -1,7 +1,9 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, ChevronRight, ClipboardList } from "lucide-react";
+import { CheckCircle2, ChevronRight, ClipboardList, Download } from "lucide-react";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import { normalizeLocale, type Locale } from "@/i18n/locales";
 import * as DB from "@/utils/db";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
@@ -10,6 +12,9 @@ import { supabase } from "@/utils/supabaseClient";
 import SafeImage from "@/components/SafeImage";
 import ModelVrBlock from "@/components/modelDetail/ModelVrBlock";
 import ImageLightbox from "@/components/modelDetail/ImageLightbox";
+import AllParamsModal from "@/components/modelDetail/AllParamsModal";
+import ExportAllParamsCard from "@/components/modelDetail/ExportAllParamsCard";
+import { flattenParams } from "@/utils/paramFlatten";
 import { normalizeSeriesVrConfig } from "@/utils/seriesVrNormalize";
 import { fetchEntityTranslations, getTranslatedField, mergeRawTranslations } from "@/utils/entityTranslation";
 import type { EntityTranslationData } from "@/utils/entityTranslation";
@@ -305,14 +310,20 @@ export default function SeriesDetail() {
 
   const [activeYear, setActiveYear] = useState<string>("");
   const [hideSame, setHideSame] = useState(false);
-  const [hideDiff, setHideDiff] = useState(false);
   const [hideEmpty, setHideEmpty] = useState(false);
   const [compareModelIds, setCompareModelIds] = useState<string[]>([]);
+
+  const MAX_COMPARE = 5;
+  const MIN_COMPARE = 2;
 
   const toggle = useInquiryDraft((s) => s.toggleModelId);
   const selectedIds = useInquiryDraft((s) => s.selectedModelIds);
   const addModelIds = useInquiryDraft((s) => s.addModelIds);
   const [addingToInquiry, setAddingToInquiry] = useState(false);
+
+  const exportRef = useRef<HTMLDivElement | null>(null);
+  const [paramsOpen, setParamsOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const query = useMemo(() => ({ seriesId, locale }), [seriesId, locale]);
 
@@ -470,9 +481,10 @@ export default function SeriesDetail() {
       return;
     }
     setCompareModelIds((prev) => {
-      if (prev.length === 0) return ids;
+      if (prev.length === 0) return ids.slice(0, MAX_COMPARE);
       const valid = prev.filter((id) => ids.includes(id));
-      return valid.length > 0 ? valid : ids;
+      if (valid.length < MIN_COMPARE) return ids.slice(0, MAX_COMPARE);
+      return valid.length > MAX_COMPARE ? valid.slice(0, MAX_COMPARE) : valid;
     });
   }, [activeModels.map((m) => m.id).join("|")]);
 
@@ -508,6 +520,60 @@ export default function SeriesDetail() {
     groups = set.size;
     return { groups, rows };
   }, [extractedRawByModel]);
+
+  // --- All params & PDF export (from model detail pattern) ---
+  const allParamsPayload = useMemo(() => {
+    const merged: Record<string, any> = {};
+    for (const m of compareModels) {
+      const raw = modelRawMap[m.id];
+      if (raw && typeof raw === "object") {
+        Object.keys(raw).forEach((k) => {
+          if (!(k in merged)) merged[k] = {};
+          if (typeof raw[k] === "object" && raw[k] !== null) {
+            Object.assign(merged[k], raw[k]);
+          }
+        });
+      }
+    }
+    return merged;
+  }, [compareModels, modelRawMap]);
+
+  const inlineAllParams = useMemo(() => flattenParams(allParamsPayload, { maxItems: 320, maxDepth: 6 }), [allParamsPayload]);
+
+  const startExportPdf = async () => {
+    if (!exportRef.current) return;
+    setExporting(true);
+    setError(null);
+    try {
+      await new Promise((r) => setTimeout(r, 80));
+      const canvas = await html2canvas(exportRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        windowWidth: exportRef.current.scrollWidth,
+      });
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfH = pdf.internal.pageSize.getHeight();
+      const imgW = pdfW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let pos = 0;
+      pdf.addImage(imgData, "JPEG", 0, pos, imgW, imgH);
+      let heightLeft = imgH - pdfH;
+      while (heightLeft > 0) {
+        pos -= pdfH;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, pos, imgW, imgH);
+        heightLeft -= pdfH;
+      }
+      pdf.save(`${seriesFullname}-${t("series.seriesDetail")}.pdf`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t("model.exportFailed"));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const groups: CompareGroup[] = useMemo(() => {
     const fmtDate = (v: any) => {
@@ -705,10 +771,9 @@ export default function SeriesDetail() {
       if (r.type !== "item") return true;
       if (hideEmpty && r.isEmpty) return false;
       if (hideSame && r.isSame) return false;
-      if (hideDiff && r.isDiff) return false;
       return true;
     });
-  }, [compareModels, groups, hideDiff, hideEmpty, hideSame, modelSpecsMap]);
+  }, [compareModels, groups, hideEmpty, hideSame, modelSpecsMap]);
 
   const selectedInSeriesCount = useMemo(() => {
     if (selectedIds.length === 0) return 0;
@@ -852,140 +917,117 @@ export default function SeriesDetail() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[1600px] px-4 py-10">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
-          <div className="order-2 lg:order-1 lg:col-span-4 lg:sticky lg:top-6">
-            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm lg:flex lg:max-h-[calc(100vh-6rem)] lg:flex-col">
-              <div className="border-b border-zinc-200 px-6 py-5 md:px-8 md:py-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-900">{t('model.filter')}</div>
-                    <div className="mt-1 text-sm text-zinc-600">{visibleModels.length > 0 ? t('model.countModels', { count: visibleModels.length }) : t('model.noModels')}</div>
-                  </div>
-                </div>
-
-                {modelsByYear.length > 1 ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {modelsByYear.map((x) => (
-                      <button
-                        key={x.year}
-                        type="button"
-                        onClick={() => setActiveYear(x.year)}
-                        className={
-                          x.year === activeYear
-                            ? "rounded-xl bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
-                            : "rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                        }
-                      >
-                        {x.year}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="lg:flex-1 lg:overflow-auto">
-                {activeModels.length === 0 ? (
-                  <div className="p-10 text-center text-sm text-zinc-600">{t('model.noModels')}</div>
-                ) : (
-                  <div className="divide-y divide-zinc-100">
-                    {(() => {
-                      const sorted = activeModels
-                        .slice()
-                        .sort((a, b) => {
-                          const ga = String(a.groupname ?? "");
-                          const gb = String(b.groupname ?? "");
-                          if (ga && gb && ga !== gb) return ga.localeCompare(gb);
-                          if (ga && !gb) return -1;
-                          if (!ga && gb) return 1;
-                          return String(a.name ?? "").localeCompare(String(b.name ?? ""));
-                        });
-                      let lastGroup = "";
-
-                      return sorted.map((m) => {
-                        const group = String(m.groupname ?? "").trim();
-                        const showGroup = group && group !== lastGroup;
-                        if (showGroup) lastGroup = group;
-                        const specs = modelSpecsMap[m.id] ?? null;
-                        const raw = modelRawMap[m.id] ?? null;
-                        const badges = buildModelBadges(m, specs, raw);
-
-                        return (
-                          <div key={m.id}>
-                            {showGroup ? <div className="bg-zinc-100 px-6 py-2 text-sm font-medium text-blue-700 md:px-8">{group}</div> : null}
-                            <div className="px-6 py-4 md:px-8">
-                              <Link
-                                to={`${base}/model/${m.id}?seriesId=${encodeURIComponent(String(seriesId))}`}
-                                state={{ fromSeriesId: String(seriesId) }}
-                                className="text-base font-semibold text-blue-700 hover:text-blue-800"
-                              >
-                                {getTranslatedField(modelTr, m.jm_id, "name", m.name)}
-                              </Link>
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                {badges.map((b) => (
-                                  <span
-                                    key={b}
-                                    className="inline-flex items-center rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-blue-700"
-                                  >
-                                    {b}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                )}
+      <div className="mx-auto w-full max-w-[1600px] px-4 py-10 space-y-8">
+        {/* VR block - full width, no sidebar */}
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+          <div className="border-b border-zinc-200 px-6 py-5 md:px-8 md:py-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">360 VR</div>
               </div>
             </div>
           </div>
+          <ModelVrBlock seriesVrConfig={seriesVrConfig} loading={seriesVrLoading} />
+        </div>
 
-          <div className="order-1 lg:order-2 lg:col-span-8">
-            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
-              <div className="border-b border-zinc-200 px-6 py-5 md:px-8 md:py-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-900">360 VR</div>
-                  </div>
-                </div>
+        {/* Stats row */}
+        <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
+          <div className="h-px w-24 bg-zinc-200" />
+          <div className="font-semibold text-zinc-900">
+            {t('model.wheelbase')} <span className="text-zinc-500 font-medium">{wheelbase ? `${wheelbase}` : "—"}</span>
+          </div>
+          <div className="h-px w-24 bg-zinc-200" />
+        </div>
+        <div className="grid grid-cols-2 gap-6 text-center md:grid-cols-4">
+          <div>
+            <div className="text-xs text-zinc-500">{t('model.maxPowerKw')}</div>
+            <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxPower ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs text-zinc-500">{t('model.maxHorsepowerHp')}</div>
+            <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxHp ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs text-zinc-500">{t('model.maxTorqueNm')}</div>
+            <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxTorque ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs text-zinc-500">{t('model.fuelConsumption')}</div>
+            <div className="mt-1 text-3xl font-semibold text-zinc-900">{statFuel ?? "—"}</div>
+          </div>
+        </div>
+
+        {/* Model selection - checkbox grid below VR */}
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+          <div className="border-b border-zinc-200 px-6 py-5 md:px-8 md:py-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">{t('model.compareSelect')}</div>
+                <div className="mt-1 text-xs text-zinc-500">{compareModelIds.length}/{MAX_COMPARE} {t('model.selected')}</div>
               </div>
-              <ModelVrBlock seriesVrConfig={seriesVrConfig} loading={seriesVrLoading} />
             </div>
-
-            <div className="mt-8">
-              <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
-                <div className="h-px w-24 bg-zinc-200" />
-                <div className="font-semibold text-zinc-900">
-                  {t('model.wheelbase')} <span className="text-zinc-500 font-medium">{wheelbase ? `${wheelbase}` : "—"}</span>
-                </div>
-                <div className="h-px w-24 bg-zinc-200" />
+          </div>
+          <div className="p-4 md:p-6">
+            {modelsByYear.length > 1 ? (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {modelsByYear.map((x) => (
+                  <button
+                    key={x.year}
+                    type="button"
+                    onClick={() => setActiveYear(x.year)}
+                    className={
+                      x.year === activeYear
+                        ? "rounded-xl bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
+                        : "rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    }
+                  >
+                    {x.year}
+                  </button>
+                ))}
               </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-6 text-center md:grid-cols-4">
-                <div>
-                  <div className="text-xs text-zinc-500">{t('model.maxPowerKw')}</div>
-                  <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxPower ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">{t('model.maxHorsepowerHp')}</div>
-                  <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxHp ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">{t('model.maxTorqueNm')}</div>
-                  <div className="mt-1 text-3xl font-semibold text-zinc-900">{statMaxTorque ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">{t('model.fuelConsumption')}</div>
-                  <div className="mt-1 text-3xl font-semibold text-zinc-900">{statFuel ?? "—"}</div>
-                </div>
-              </div>
+            ) : null}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {activeModels.map((m) => {
+                const checked = compareModelIds.includes(m.id);
+                const disabled = !checked && compareModelIds.length >= MAX_COMPARE;
+                return (
+                  <label
+                    key={m.id}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 cursor-pointer transition-colors text-sm ${
+                      checked
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : disabled
+                          ? 'bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed'
+                          : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => {
+                        if (checked) {
+                          if (compareModelIds.length > MIN_COMPARE) {
+                            setCompareModelIds(compareModelIds.filter((id) => id !== m.id));
+                          }
+                        } else {
+                          if (compareModelIds.length < MAX_COMPARE) {
+                            setCompareModelIds([...compareModelIds, m.id]);
+                          }
+                        }
+                      }}
+                      className="rounded accent-emerald-700"
+                    />
+                    <span className="truncate">{getTranslatedField(modelTr, m.jm_id, "name", m.name)}</span>
+                  </label>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+        {/* Official images - above params table */}
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
           {officialImages.length === 0 ? (
             <div className="p-10 text-center text-sm text-zinc-600">{t('model.noOfficialImages')}</div>
           ) : (
@@ -999,10 +1041,10 @@ export default function SeriesDetail() {
                     setLightboxOpen(true);
                   }}
                   className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
-                  title="{t('model.clickToEnlarge')}"
+                  title={t('model.clickToEnlarge')}
                 >
                   <div className="aspect-[4/3] w-full">
-                    <SafeImage src={src} alt={`${seriesFullname} {t('model.officialImages')} ${idx + 1}`} className="h-full w-full object-cover" usePlaceholder />
+                    <SafeImage src={src} alt={`${seriesFullname} ${idx + 1}`} className="h-full w-full object-cover" usePlaceholder />
                   </div>
                 </button>
               ))}
@@ -1012,12 +1054,106 @@ export default function SeriesDetail() {
 
         <ImageLightbox
           open={lightboxOpen}
-          title={`${seriesFullname} {t('model.officialImages')}`}
+          title={`${seriesFullname} ${t('model.officialImages')}`}
           images={officialImages}
           index={lightboxIndex}
           onChangeIndex={setLightboxIndex}
           onClose={() => setLightboxOpen(false)}
         />
+
+        {/* Full-width comparison table - autohome style */}
+        <div ref={exportRef} className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+          <div className="border-b border-zinc-200 px-6 py-5 md:px-8 md:py-6">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-lg font-semibold text-zinc-900">{t("model.allParams")}</div>
+                <div className="mt-1 text-xs text-zinc-500">{t('model.countModels', { count: compareModels.length })}</div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+                  <input type="checkbox" checked={hideSame} onChange={(e) => setHideSame(e.target.checked)} className="rounded" />
+                  {t('model.hideSame')}
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+                  <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="rounded" />
+                  {t('model.hideEmpty')}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setParamsOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  {t("model.allParams")}
+                </button>
+                <button
+                  type="button"
+                  onClick={startExportPdf}
+                  disabled={exporting}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  {exporting ? t("model.generating") : t("model.exportPdf")}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: Math.max(600, compareModels.length * 220) }}>
+              <thead>
+                <tr className="bg-zinc-100">
+                  <th className="sticky left-0 z-10 bg-zinc-100 px-5 py-3 text-left font-semibold text-zinc-700 border-r border-zinc-200 min-w-[140px]">
+                    {t('model.paramItem')}
+                  </th>
+                  {compareModels.map((m, idx) => (
+                    <th key={m.id} className={`px-4 py-3 text-center font-semibold text-zinc-800 ${idx % 2 === 0 ? 'bg-zinc-100' : 'bg-zinc-50'}`}>
+                      <div className="text-sm">{getTranslatedField(modelTr, m.jm_id, "name", m.name)}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((row) => {
+                  if (row.type === "group") {
+                    return (
+                      <tr key={row.id} className="bg-zinc-200/60">
+                        <td colSpan={compareModels.length + 1} className="px-5 py-2.5 font-semibold text-zinc-700 text-sm sticky left-0">
+                          {row.label}
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={row.id} className={`border-b border-zinc-100 ${row.isSame ? 'opacity-70' : ''}`}>
+                      <td className="sticky left-0 z-10 bg-white px-5 py-3 text-zinc-600 border-r border-zinc-100 font-medium text-xs whitespace-nowrap">
+                        {row.label}
+                      </td>
+                      {row.values.map((v, idx) => (
+                        <td key={idx} className={`px-4 py-3 text-center text-zinc-800 ${idx % 2 === 0 ? 'bg-white' : 'bg-zinc-50/50'}`}>
+                          {String(v ?? "—")}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <AllParamsModal
+          open={paramsOpen}
+          title={`${t("model.allParams")} - ${seriesFullname}`}
+          payload={allParamsPayload}
+          onClose={() => setParamsOpen(false)}
+        />
+
+        {/* Hidden extra export card for PDF */}
+        <div className="hidden">
+          <div className="bg-white p-8">
+            <h1 className="text-2xl font-bold mb-4">{seriesFullname} - {t("model.allParamsExport")}</h1>
+            <ExportAllParamsCard items={inlineAllParams} />
+          </div>
+        </div>
       </div>
     </div>
   );
