@@ -930,6 +930,41 @@ export default function SeriesDetail() {
           <ModelVrBlock seriesVrConfig={seriesVrConfig} loading={seriesVrLoading} />
         </div>
 
+        {/* Official images - below VR */}
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+          {officialImages.length === 0 ? (
+            <div className="p-10 text-center text-sm text-zinc-600">{t('model.noOfficialImages')}</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:p-6 lg:grid-cols-4">
+              {officialImages.map((src, idx) => (
+                <button
+                  key={`${src}_${idx}`}
+                  type="button"
+                  onClick={() => {
+                    setLightboxIndex(idx);
+                    setLightboxOpen(true);
+                  }}
+                  className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
+                  title={t('model.clickToEnlarge')}
+                >
+                  <div className="aspect-[4/3] w-full">
+                    <SafeImage src={src} alt={`${seriesFullname} ${idx + 1}`} className="h-full w-full object-cover" usePlaceholder />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <ImageLightbox
+          open={lightboxOpen}
+          title={`${seriesFullname} ${t('model.officialImages')}`}
+          images={officialImages}
+          index={lightboxIndex}
+          onChangeIndex={setLightboxIndex}
+          onClose={() => setLightboxOpen(false)}
+        />
+
         {/* Stats row */}
         <div className="flex items-center justify-center gap-4 text-xs text-zinc-500">
           <div className="h-px w-24 bg-zinc-200" />
@@ -1025,41 +1060,6 @@ export default function SeriesDetail() {
             </div>
           </div>
         </div>
-
-        {/* Official images - above params table */}
-        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
-          {officialImages.length === 0 ? (
-            <div className="p-10 text-center text-sm text-zinc-600">{t('model.noOfficialImages')}</div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:p-6 lg:grid-cols-4">
-              {officialImages.map((src, idx) => (
-                <button
-                  key={`${src}_${idx}`}
-                  type="button"
-                  onClick={() => {
-                    setLightboxIndex(idx);
-                    setLightboxOpen(true);
-                  }}
-                  className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
-                  title={t('model.clickToEnlarge')}
-                >
-                  <div className="aspect-[4/3] w-full">
-                    <SafeImage src={src} alt={`${seriesFullname} ${idx + 1}`} className="h-full w-full object-cover" usePlaceholder />
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <ImageLightbox
-          open={lightboxOpen}
-          title={`${seriesFullname} ${t('model.officialImages')}`}
-          images={officialImages}
-          index={lightboxIndex}
-          onChangeIndex={setLightboxIndex}
-          onClose={() => setLightboxOpen(false)}
-        />
 
         {/* Full-width comparison table - autohome style */}
         <div ref={exportRef} className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
