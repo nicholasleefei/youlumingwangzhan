@@ -61,7 +61,9 @@
       "PowerShell(Stop-Process *)",
       "PowerShell(Start-Process \"http://localhost:5173/admin\")",
       "PowerShell(Get-Process *)",
-      "PowerShell(Start-Process \"http://localhost:5173\")"
+      "PowerShell(Start-Process \"http://localhost:5173\")",
+      "Bash(node -e \"console.log\\('20.11.0'\\)\")",
+      "Bash(echo \"20.11.0\")"
     ]
   }
 }
