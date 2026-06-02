@@ -5,7 +5,7 @@ import { supabase } from "@/utils/supabaseClient";
 import AdminLogin from "@/pages/admin/AdminLogin";
 import AdminSiteDisplay from "@/pages/admin/AdminSiteDisplay";
 import AdminMaterialManagement from "@/pages/admin/AdminMaterialManagement";
-import AdminCustomerManagement from "@/pages/admin/AdminCustomerManagement";
+import AdminCrm from "@/pages/admin/AdminCrm";
 import AdminPermissionApproval from "@/pages/admin/AdminPermissionApproval";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminKnowledgeBase from "@/pages/admin/AdminKnowledgeBase";
@@ -306,7 +306,7 @@ export default function AdminApp() {
         <div className="mt-2">
           {tab === "content-publish" ? <AdminSiteDisplay /> : null}
           {tab === "material-asset" ? <AdminMaterialManagement /> : null}
-          {tab === "customer-inquiries" ? <AdminCustomerManagement /> : null}
+          {tab === "customer-inquiries" ? <AdminCrm /> : null}
           {tab === "permission-approval" ? <AdminPermissionApproval /> : null}
           {tab === "system-config" ? <AdminSettings /> : null}
           {tab === "knowledge-base" ? <AdminKnowledgeBase /> : null}

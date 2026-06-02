@@ -70,11 +70,6 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/carcg-api/, ''),
       },
-      '/plate-logo-api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/plate-logo-api/, ''),
-      },
     },
   },
 })

@@ -42,11 +42,6 @@ type State = {
     brandName: string;
     seriesPool: BrandVrBatchSeries[];
     onlyNormal: boolean;
-    plateLogo: {
-      enabled: boolean;
-      apiBaseUrl?: string;
-      selectedLogoUrl?: string | null;
-    };
   }) => Promise<void>;
   cancel: () => void;
   clearDrafts: () => void;
@@ -83,14 +78,9 @@ export const useBrandVrBatch = create<State>((set, get) => ({
 
   clearDrafts: () => set({ drafts: [] }),
 
-  startDownload: async ({ brandJmId, brandName, seriesPool, onlyNormal, plateLogo }) => {
+  startDownload: async ({ brandJmId, brandName, seriesPool, onlyNormal }) => {
     const state = get();
     if (state.running || state.saving) return;
-
-    if (plateLogo.enabled && !plateLogo.apiBaseUrl) {
-      set((s) => ({ logs: [...s.logs, `[${nowStamp()}] 车牌替换已启用，但未配置替换服务地址`] }));
-      return;
-    }
 
     const pool = seriesPool
       .filter((s) => (!onlyNormal ? true : (s.activity_status ?? 0) === 0))
@@ -112,15 +102,6 @@ export const useBrandVrBatch = create<State>((set, get) => ({
     });
     set((s) => ({ logs: [...s.logs, `[${nowStamp()}] 开始批量下载：${brandName}（共 ${pool.length} 个车系）`] }));
 
-    let selectedLogoBlob: Blob | undefined;
-    if (plateLogo.enabled && plateLogo.selectedLogoUrl) {
-      try {
-        const r = await fetch(plateLogo.selectedLogoUrl);
-        if (r.ok) selectedLogoBlob = await r.blob();
-      } catch {
-      }
-    }
-
     const drafts: BrandVrBatchDraft[] = [];
 
     try {
@@ -137,42 +118,14 @@ export const useBrandVrBatch = create<State>((set, get) => ({
         const errors: string[] = [];
 
         try {
-          const ex = await downloadExteriorVRForSeries(
-            series.jm_id,
-            brandName,
-            series.name,
-            {
-              plateLogo: {
-                enabled: plateLogo.enabled,
-                apiBaseUrl: plateLogo.apiBaseUrl,
-                logoBlob: selectedLogoBlob,
-                timeoutMs: 60000,
-                scene: "exterior",
-              },
-            },
-            (p: VRDownloadProgress) => {
-              set({ progress: { current: i + 1, total: pool.length, message: `${series.name} - ${p.message}` } });
-            }
-          );
+          const ex = await downloadExteriorVRForSeries(series.jm_id, brandName, series.name, (p: VRDownloadProgress) => {
+            set({ progress: { current: i + 1, total: pool.length, message: `${series.name} - ${p.message}` } });
+          });
           if (ex.errors.length > 0) errors.push(...ex.errors.map((x) => `[外观VR] ${x}`));
 
-          const it = await downloadInteriorVRForSeries(
-            series.jm_id,
-            brandName,
-            series.name,
-            {
-              plateLogo: {
-                enabled: plateLogo.enabled,
-                apiBaseUrl: plateLogo.apiBaseUrl,
-                logoBlob: selectedLogoBlob,
-                timeoutMs: 60000,
-                scene: "interior",
-              },
-            },
-            (p: VRDownloadProgress) => {
-              set({ progress: { current: i + 1, total: pool.length, message: `${series.name} - ${p.message}` } });
-            }
-          );
+          const it = await downloadInteriorVRForSeries(series.jm_id, brandName, series.name, (p: VRDownloadProgress) => {
+            set({ progress: { current: i + 1, total: pool.length, message: `${series.name} - ${p.message}` } });
+          });
           if (it.errors.length > 0) errors.push(...it.errors.map((x) => `[内饰VR] ${x}`));
 
           const draft: BrandVrBatchDraft = {

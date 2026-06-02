@@ -1,5 +1,4 @@
 import { compressImage } from "./imageCompression";
-import { maybeReplacePlateLogoBlob } from "./plateLogoReplace";
 
 export interface VRColorGroup {
   color_code: string;
@@ -26,7 +25,7 @@ export interface VRInteriorDownloadResult {
 }
 
 export interface VRDownloadProgress {
-  stage: "searching" | "collecting" | "downloading" | "compressing" | "replacing" | "done" | "error";
+  stage: "searching" | "collecting" | "downloading" | "compressing" | "done" | "error";
   current: number;
   total: number;
   message: string;
@@ -35,17 +34,6 @@ export interface VRDownloadProgress {
 }
 
 export type VRDownloadProgressCallback = (progress: VRDownloadProgress) => void;
-
-export type PlateLogoReplaceOptions = {
-  enabled: boolean;
-  apiBaseUrl?: string;
-  logoBlob?: Blob;
-  timeoutMs?: number;
-  scene?: "exterior" | "interior";
-  conf?: number;
-  imgsz?: number;
-  maxDet?: number;
-};
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -381,12 +369,16 @@ async function fetchImglistPageProps(seriesId: number, specId: number | null, pa
   const pageNo = Math.max(1, Math.floor(Number(page) || 1));
   // 尝试几种不同的 URL 模式 (汽车之家最新和旧版的不同拼接方式)
   const urlsToTry = unique<string>([
-    `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-${pageNo}.html`,
+    // 8-segment format (current autohome.com.cn as of 2025)
     `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-x-${pageNo}.html`,
+    // with trailing -1
+    `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-x-${pageNo}-1.html`,
+    // query param format
+    `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-x-1.html?page=${pageNo}`,
+    // shorter formats (may still work, keep as fallbacks)
+    `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-${pageNo}.html`,
     `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-${pageNo}.html`,
     `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-${pageNo}-1.html`,
-    `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-x-${pageNo}-1.html`,
-    `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-x-1.html?page=${pageNo}`,
     `https://www.autohome.com.cn/cars/imglist-x-x-${seriesId}-${specPart}-x-x-x-x-x-1.html?page=${pageNo}`,
     pageNo === 1 ? `https://car.autohome.com.cn/pic/series/${seriesId}.html` : null,
   ].filter(Boolean) as string[]);
@@ -638,14 +630,10 @@ export async function downloadExteriorVRImages(
   seriesId: number,
   brandName: string,
   seriesName: string,
-  onProgress?: VRDownloadProgressCallback,
-  plateLogo?: PlateLogoReplaceOptions
+  onProgress?: VRDownloadProgressCallback
 ): Promise<{ colorGroups: VRColorGroup[]; errors: string[] }> {
   const colorGroups: VRColorGroup[] = [];
   const errors: string[] = [];
-  let plateReplaceServiceDegraded = false;
-  const plateReplaceErrors: string[] = [];
-  let plateReplaceErrorCount = 0;
 
   onProgress?.({
     stage: "searching",
@@ -764,15 +752,13 @@ export async function downloadExteriorVRImages(
     const totalImages = vrItems.length;
     let downloadedCount = 0;
     let compressedCount = 0;
-    let replacedCount = 0;
 
-    const concurrency = Math.max(1, Math.min(10, Math.floor(Number(plateLogo?.enabled ? 4 : 6))));
+    const concurrency = 6;
 
     for (const [colorName, groupData] of Array.from(colorGroupsMap.entries())) {
       const blobs = new Array<Blob | null>(groupData.images.length).fill(null);
       const compressedBlobs = new Array<Blob | null>(groupData.images.length).fill(null);
       const compressedDataUrls = new Array<string | null>(groupData.images.length).fill(null);
-      const replacedDataUrls = new Array<string | null>(groupData.images.length).fill(null);
 
       await mapLimit(groupData.images, concurrency, async (url, idx) => {
         const proxyImageUrl = getImageProxyUrl(url);
@@ -784,7 +770,7 @@ export async function downloadExteriorVRImages(
           colorGroup: {
             color_code: groupData.colorHex,
             color_name: colorName,
-            images: replacedDataUrls.filter(Boolean) as string[],
+            images: compressedDataUrls.filter(Boolean) as string[],
           },
         });
 
@@ -827,7 +813,7 @@ export async function downloadExteriorVRImages(
           colorGroup: {
             color_code: groupData.colorHex,
             color_name: colorName,
-            images: replacedDataUrls.filter(Boolean) as string[],
+            images: compressedDataUrls.filter(Boolean) as string[],
           },
         });
 
@@ -848,63 +834,7 @@ export async function downloadExteriorVRImages(
         }
       });
 
-      for (let idx = 0; idx < compressedDataUrls.length; idx++) {
-        const dataUrl = compressedDataUrls[idx];
-
-        if (!dataUrl) {
-          replacedDataUrls[idx] = null;
-          continue;
-        }
-
-        const currentIdx = ++replacedCount;
-
-        if (!plateLogo?.enabled) {
-          replacedDataUrls[idx] = dataUrl;
-          continue;
-        }
-
-        onProgress?.({
-          stage: "replacing",
-          current: calcSpanProgress(76, 14, currentIdx, totalImages),
-          total: 100,
-          message: `车牌替换 ${colorName} - ${currentIdx}/${totalImages}`,
-          colorGroup: {
-            color_code: groupData.colorHex,
-            color_name: colorName,
-            images: replacedDataUrls.filter(Boolean) as string[],
-          },
-        });
-
-        const blob = compressedBlobs[idx];
-        if (!blob) {
-          replacedDataUrls[idx] = dataUrl;
-          continue;
-        }
-
-        const replaced = await maybeReplacePlateLogoBlob(blob, {
-          enabled: plateLogo.enabled,
-          apiBaseUrl: plateLogo.apiBaseUrl,
-          logoBlob: plateLogo.logoBlob,
-          timeoutMs: plateLogo.timeoutMs ?? 60000,
-          scene: plateLogo.scene ?? "exterior",
-          conf: plateLogo.conf,
-          imgsz: plateLogo.imgsz,
-          maxDet: plateLogo.maxDet,
-        });
-
-        let nextDataUrl = dataUrl;
-        if (replaced.replaced) nextDataUrl = await blobToDataUrl(replaced.blob);
-        if (replaced.error) {
-          plateReplaceServiceDegraded = true;
-          plateReplaceErrorCount++;
-          if (plateReplaceErrors.length < 5) {
-            plateReplaceErrors.push(`车牌替换失败（${colorName} ${currentIdx}/${totalImages}）：${replaced.error}`);
-          }
-        }
-        replacedDataUrls[idx] = nextDataUrl;
-      }
-
-      const finalImages = replacedDataUrls.filter(Boolean) as string[];
+      const finalImages = compressedDataUrls.filter(Boolean) as string[];
       if (finalImages.length > 0) {
         colorGroups.push({
           color_code: groupData.colorHex,
@@ -920,18 +850,6 @@ export async function downloadExteriorVRImages(
       total: 100,
       message: `完成！共 ${colorGroups.length} 个颜色分组`,
     });
-
-    if (plateReplaceServiceDegraded) {
-      onProgress?.({
-        stage: "done",
-        current: 100,
-        total: 100,
-        message: `车牌替换服务本次有异常（失败 ${plateReplaceErrorCount} 张），已自动跳过并使用原图继续`,
-      });
-      if (plateReplaceErrors.length > 0) {
-        errors.push(...plateReplaceErrors);
-      }
-    }
 
     return { colorGroups, errors };
   } catch (error) {
@@ -951,9 +869,6 @@ export async function downloadExteriorVRForSeries(
   seriesJmId: number,
   brandName: string,
   seriesName: string,
-  options?: {
-    plateLogo?: PlateLogoReplaceOptions;
-  },
   onProgress?: VRDownloadProgressCallback
 ): Promise<{ colorGroups: VRColorGroup[]; errors: string[] }> {
   onProgress?.({
@@ -963,7 +878,7 @@ export async function downloadExteriorVRForSeries(
     message: `使用汽车之家下载: ${brandName} ${seriesName} (ID: ${seriesJmId})`,
   });
 
-  return downloadExteriorVRImages(seriesJmId, brandName, seriesName, onProgress, options?.plateLogo);
+  return downloadExteriorVRImages(seriesJmId, brandName, seriesName, onProgress);
 }
 
 function normalizeForMatch(input: string): string {
@@ -1045,13 +960,9 @@ export async function downloadImagesForModelCategory(
   modelName: string,
   category: ModelImageCategory,
   opts?: { limit?: number; concurrency?: number },
-  onProgress?: VRDownloadProgressCallback,
-  plateLogo?: PlateLogoReplaceOptions
+  onProgress?: VRDownloadProgressCallback
 ): Promise<{ images: string[]; errors: string[]; autohomeSeriesId: number; specId: number | null }> {
   const errors: string[] = [];
-  let plateReplaceServiceDegraded = false;
-  const plateReplaceErrors: string[] = [];
-  let plateReplaceErrorCount = 0;
   const images: string[] = [];
   const limit = Math.max(1, Math.min(60, Number(opts?.limit ?? 24)));
   const concurrency = Math.max(1, Math.min(8, Math.floor(Number(opts?.concurrency ?? 4))));
@@ -1153,13 +1064,10 @@ export async function downloadImagesForModelCategory(
   });
 
   const blobs = new Array<Blob | null>(urls.length).fill(null);
-  const compressedBlobs = new Array<Blob | null>(urls.length).fill(null);
   const compressedDataUrls = new Array<string | null>(urls.length).fill(null);
-  const replacedDataUrls = new Array<string | null>(urls.length).fill(null);
 
   let downloadedCount = 0;
   let compressedCount = 0;
-  let replacedCount = 0;
 
   await mapLimit(urls, concurrency, async (url, i) => {
     const proxyImageUrl = getImageProxyUrl(url);
@@ -1197,7 +1105,6 @@ export async function downloadImagesForModelCategory(
   await mapLimit(blobs, concurrency, async (blob, i) => {
     if (!blob) {
       compressedDataUrls[i] = null;
-      compressedBlobs[i] = null;
       return;
     }
 
@@ -1215,68 +1122,15 @@ export async function downloadImagesForModelCategory(
         initialQuality: 0.85,
         step: 0.15,
       });
-      compressedBlobs[i] = compressed.blob;
       compressedDataUrls[i] = compressed.dataUrl;
     } catch {
-      compressedBlobs[i] = null;
       compressedDataUrls[i] = null;
     } finally {
       compressedCount++;
     }
   });
 
-  for (let i = 0; i < compressedDataUrls.length; i++) {
-    const dataUrl = compressedDataUrls[i];
-
-    if (!dataUrl) {
-      replacedDataUrls[i] = null;
-      continue;
-    }
-
-    const currentIdx = ++replacedCount;
-
-    if (!plateLogo?.enabled) {
-      replacedDataUrls[i] = dataUrl;
-      continue;
-    }
-
-    onProgress?.({
-      stage: "replacing",
-      current: calcSpanProgress(64, 16, currentIdx, urls.length),
-      total: 100,
-      message: `车牌替换 ${currentIdx}/${urls.length}`,
-    });
-
-    const blob = compressedBlobs[i];
-    if (!blob) {
-      replacedDataUrls[i] = dataUrl;
-      continue;
-    }
-
-    const replaced = await maybeReplacePlateLogoBlob(blob, {
-      enabled: plateLogo.enabled,
-      apiBaseUrl: plateLogo.apiBaseUrl,
-      logoBlob: plateLogo.logoBlob,
-      timeoutMs: plateLogo.timeoutMs ?? 60000,
-      scene: plateLogo.scene ?? "exterior",
-      conf: plateLogo.conf,
-      imgsz: plateLogo.imgsz,
-      maxDet: plateLogo.maxDet,
-    });
-
-    let nextDataUrl = dataUrl;
-    if (replaced.replaced) nextDataUrl = await blobToDataUrl(replaced.blob);
-    if (replaced.error) {
-      plateReplaceServiceDegraded = true;
-      plateReplaceErrorCount++;
-      if (plateReplaceErrors.length < 5) {
-        plateReplaceErrors.push(`车牌替换失败（${label} ${currentIdx}/${urls.length}）：${replaced.error}`);
-      }
-    }
-    replacedDataUrls[i] = nextDataUrl;
-  }
-
-  images.push(...(replacedDataUrls.filter(Boolean) as string[]));
+  images.push(...(compressedDataUrls.filter(Boolean) as string[]));
 
   onProgress?.({
     stage: "done",
@@ -1284,18 +1138,6 @@ export async function downloadImagesForModelCategory(
     total: 100,
     message: `${label}完成：成功 ${images.length} 张`,
   });
-
-  if (plateReplaceServiceDegraded) {
-    onProgress?.({
-      stage: "done",
-      current: 100,
-      total: 100,
-      message: `车牌替换服务本次有异常（失败 ${plateReplaceErrorCount} 张），已自动跳过并使用原图继续`,
-    });
-    if (plateReplaceErrors.length > 0) {
-      errors.push(...plateReplaceErrors);
-    }
-  }
 
   return { images, errors, autohomeSeriesId, specId };
 }
@@ -1475,14 +1317,10 @@ export async function downloadInteriorVRImages(
   seriesId: number,
   brandName: string,
   seriesName: string,
-  onProgress?: VRDownloadProgressCallback,
-  plateLogo?: PlateLogoReplaceOptions
+  onProgress?: VRDownloadProgressCallback
 ): Promise<{ colorGroups: VRInteriorColorGroup[]; errors: string[] }> {
   const colorGroups: VRInteriorColorGroup[] = [];
   const errors: string[] = [];
-  let plateReplaceServiceDegraded = false;
-  const plateReplaceErrors: string[] = [];
-  let plateReplaceErrorCount = 0;
 
   onProgress?.({
     stage: "searching",
@@ -1645,7 +1483,7 @@ export async function downloadInteriorVRImages(
       (sum, cGroup) => sum + Array.from(cGroup.positions.values()).reduce((pSum, pGroup) => pSum + pGroup.images.length, 0),
       0
     );
-    const concurrency = Math.max(1, Math.min(10, Math.floor(Number(plateLogo?.enabled ? 4 : 6))));
+    const concurrency = 6;
 
     type InteriorTask = {
       colorId: string;
@@ -1688,13 +1526,10 @@ export async function downloadInteriorVRImages(
     }
 
     const blobs = new Array<Blob | null>(tasks.length).fill(null);
-    const compressedBlobs = new Array<Blob | null>(tasks.length).fill(null);
     const compressedDataUrls = new Array<string | null>(tasks.length).fill(null);
-    const replacedDataUrls = new Array<string | null>(tasks.length).fill(null);
 
     let downloadedCount = 0;
     let compressedCount = 0;
-    let replacedCount = 0;
 
     await mapLimit(tasks, concurrency, async (task, idx) => {
       const proxyImageUrl = getImageProxyUrl(task.url);
@@ -1733,7 +1568,6 @@ export async function downloadInteriorVRImages(
     await mapLimit(blobs, concurrency, async (blob, idx) => {
       if (!blob) {
         compressedDataUrls[idx] = null;
-        compressedBlobs[idx] = null;
         return;
       }
 
@@ -1752,70 +1586,16 @@ export async function downloadInteriorVRImages(
           initialQuality: 0.85,
           step: 0.15,
         });
-        compressedBlobs[idx] = compressed.blob;
         compressedDataUrls[idx] = compressed.dataUrl;
       } catch {
-        compressedBlobs[idx] = null;
         compressedDataUrls[idx] = null;
       } finally {
         compressedCount++;
       }
     });
 
-    for (let idx = 0; idx < compressedDataUrls.length; idx++) {
-      const dataUrl = compressedDataUrls[idx];
-
-      if (!dataUrl) {
-        replacedDataUrls[idx] = null;
-        continue;
-      }
-
-      if (!plateLogo?.enabled) {
-        replacedDataUrls[idx] = dataUrl;
-        continue;
-      }
-
-      const currentIdx = ++replacedCount;
-
-      const task = tasks[idx];
-      onProgress?.({
-        stage: "replacing",
-        current: calcSpanProgress(76, 14, currentIdx, totalImages),
-        total: 100,
-        message: `车牌替换 ${task.displayName} - ${currentIdx}/${totalImages}`,
-      });
-
-      const blob = compressedBlobs[idx];
-      if (!blob) {
-        replacedDataUrls[idx] = dataUrl;
-        continue;
-      }
-
-      const replaced = await maybeReplacePlateLogoBlob(blob, {
-        enabled: plateLogo.enabled,
-        apiBaseUrl: plateLogo.apiBaseUrl,
-        logoBlob: plateLogo.logoBlob,
-        timeoutMs: plateLogo.timeoutMs ?? 60000,
-        scene: plateLogo.scene ?? "interior",
-        conf: plateLogo.conf,
-        imgsz: plateLogo.imgsz,
-        maxDet: plateLogo.maxDet,
-      });
-
-      let nextDataUrl = dataUrl;
-      if (replaced.replaced) nextDataUrl = await blobToDataUrl(replaced.blob);
-      if (replaced.error) {
-        plateReplaceServiceDegraded = true;
-        plateReplaceErrorCount++;
-        if (plateReplaceErrors.length < 5) {
-          plateReplaceErrors.push(`车牌替换失败（${task.displayName} ${currentIdx}/${totalImages}）：${replaced.error}`);
-        }
-      }
-      replacedDataUrls[idx] = nextDataUrl;
-    }
-
     for (let i = 0; i < tasks.length; i++) {
-      const url = replacedDataUrls[i];
+      const url = compressedDataUrls[i];
       if (!url) continue;
       const task = tasks[i];
       const arr = positionImagesMap.get(task.positionKey);
@@ -1851,18 +1631,6 @@ export async function downloadInteriorVRImages(
       message: `完成！共找到 ${colorGroups.length} 种颜色，${colorGroups.reduce((acc, c) => acc + c.positions.length, 0)} 个位置分组`,
     });
 
-    if (plateReplaceServiceDegraded) {
-      onProgress?.({
-        stage: "done",
-        current: 100,
-        total: 100,
-        message: `车牌替换服务本次有异常（失败 ${plateReplaceErrorCount} 张），已自动跳过并使用原图继续`,
-      });
-      if (plateReplaceErrors.length > 0) {
-        errors.push(...plateReplaceErrors);
-      }
-    }
-
     return { colorGroups, errors };
   } catch (error) {
     const errorMsg = `下载内饰VR失败: ${error}`;
@@ -1881,9 +1649,6 @@ export async function downloadInteriorVRForSeries(
   seriesJmId: number,
   brandName: string,
   seriesName: string,
-  options?: {
-    plateLogo?: PlateLogoReplaceOptions;
-  },
   onProgress?: VRDownloadProgressCallback
 ): Promise<{ colorGroups: VRInteriorColorGroup[]; errors: string[] }> {
   onProgress?.({
@@ -1893,5 +1658,5 @@ export async function downloadInteriorVRForSeries(
     message: `使用汽车之家下载: ${brandName} ${seriesName} (ID: ${seriesJmId})`,
   });
 
-  return downloadInteriorVRImages(seriesJmId, brandName, seriesName, onProgress, options?.plateLogo);
+  return downloadInteriorVRImages(seriesJmId, brandName, seriesName, onProgress);
 }

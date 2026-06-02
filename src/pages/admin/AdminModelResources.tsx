@@ -5,7 +5,6 @@ import { pageCardCls, pageTitleCls, pageDescCls, subTabCls, primaryButtonCls, se
 import { downloadExteriorVRForSeries, downloadInteriorVRForSeries, downloadImagesForModelCategory, downloadOfficialImagesForSeries, type ModelImageCategory, VRDownloadProgress, VRColorGroup, VRInteriorColorGroup, VRInteriorPositionGroup } from "@/utils/vrDownloader";
 import { formatFileSize, compressImage } from "@/utils/imageCompression";
 import ResourceOverviewTable from "@/components/admin/resourceOverview/ResourceOverviewTable";
-import { maybeReplacePlateLogoBlob } from "@/utils/plateLogoReplace";
 import { useBrandVrBatch } from "@/store/useBrandVrBatch";
 import { asyncPool } from "@/utils/asyncPool";
 import { normalizeSeriesVrConfig } from "@/utils/seriesVrNormalize";
@@ -49,20 +48,6 @@ type SeriesVrConfig = {
   interior_vr: InteriorColorGroup[];
   created_at: string;
   updated_at: string;
-};
-
-type PlateLogoAsset = {
-  id: string;
-  name: string;
-  storage_bucket: string;
-  storage_path: string;
-  public_url: string;
-  created_at: string;
-};
-
-type PlateLogoSettings = {
-  enabled: boolean;
-  selected_logo_id: string | null;
 };
 
 type InteriorVrVisibilitySettings = {
@@ -351,22 +336,10 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
   const cancelBrandVrBatch = useBrandVrBatch((s) => s.cancel);
   const saveBrandVrBatch = useBrandVrBatch((s) => s.saveAll);
 
-  const [plateLogoAssets, setPlateLogoAssets] = useState<PlateLogoAsset[]>([]);
-  const [plateLogoSettings, setPlateLogoSettings] = useState<PlateLogoSettings>({ enabled: false, selected_logo_id: null });
-  const [plateLogoBusy, setPlateLogoBusy] = useState(false);
-  const [plateLogoError, setPlateLogoError] = useState<string | null>(null);
-  const [plateLogoMessage, setPlateLogoMessage] = useState<string | null>(null);
-
   const [interiorVrVisBusy, setInteriorVrVisBusy] = useState(false);
   const [interiorVrVisError, setInteriorVrVisError] = useState<string | null>(null);
   const [interiorVrVisMessage, setInteriorVrVisMessage] = useState<string | null>(null);
   const [interiorVrVisibility, setInteriorVrVisibility] = useState<InteriorVrVisibilitySettings>({ hidden_positions: ['driver'] });
-
-  const [plateLogoHealth, setPlateLogoHealth] = useState<string | null>(null);
-  const [plateLogoTestBeforeUrl, setPlateLogoTestBeforeUrl] = useState<string | null>(null);
-  const [plateLogoTestAfterUrl, setPlateLogoTestAfterUrl] = useState<string | null>(null);
-  const [plateLogoTestInfo, setPlateLogoTestInfo] = useState<string | null>(null);
-  const [plateLogoTestAttempts, setPlateLogoTestAttempts] = useState<any[] | null>(null);
 
   
 
@@ -469,8 +442,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
   }, [props.jump, selectedBrandId, selectedSeriesId]);
 
   useEffect(() => {
-    void refreshPlateLogoAssets();
-    void refreshPlateLogoSettings();
     void refreshInteriorVrVisibility();
   }, []);
 
@@ -522,132 +493,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
     const current = interiorVrVisibility.hidden_positions || [];
     const nextHidden = checked ? Array.from(new Set([...current, pos])) : current.filter((p) => p !== pos);
     void saveInteriorVrVisibility({ hidden_positions: nextHidden });
-  }
-
-  async function refreshPlateLogoAssets() {
-    try {
-      const { data, error } = await supabase
-        .from('plate_logo_assets')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setPlateLogoAssets((data || []) as PlateLogoAsset[]);
-    } catch (e: any) {
-      setPlateLogoError(e?.message || '加载Logo素材库失败');
-    }
-  }
-
-  async function refreshPlateLogoSettings() {
-    try {
-      const { data, error } = await supabase
-        .from('site_config')
-        .select('value')
-        .eq('key', 'plate_logo_settings')
-        .maybeSingle();
-      if (error) throw error;
-      const v = (data?.value || {}) as any;
-      setPlateLogoSettings({
-        enabled: Boolean(v.enabled),
-        selected_logo_id: v.selected_logo_id ? String(v.selected_logo_id) : null,
-      });
-    } catch {
-    }
-  }
-
-  async function savePlateLogoSettings(next: PlateLogoSettings) {
-    setPlateLogoBusy(true);
-    setPlateLogoError(null);
-    setPlateLogoMessage(null);
-    try {
-      const { error } = await supabase
-        .from('site_config')
-        .upsert({
-          key: 'plate_logo_settings',
-          value: next,
-        }, { onConflict: 'key' });
-      if (error) throw error;
-      setPlateLogoSettings(next);
-      setPlateLogoMessage('已保存车牌替换设置');
-    } catch (e: any) {
-      setPlateLogoError(e?.message || '保存失败');
-    } finally {
-      setPlateLogoBusy(false);
-    }
-  }
-
-  async function getCurrentUserId() {
-    const { data, error } = await supabase.auth.getUser();
-    if (error) throw error;
-    const uid = data.user?.id;
-    return uid || null;
-  }
-
-  async function uploadPlateLogo(file: File) {
-    setPlateLogoBusy(true);
-    setPlateLogoError(null);
-    setPlateLogoMessage(null);
-    try {
-      const compressed = await compressImage(file, { maxSizeMB: 0.2, maxWidthOrHeight: 512 });
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
-      const path = `plate_logos/${crypto.randomUUID()}-${safeName}`;
-
-      const up = await supabase.storage.from('vehicle_resources').upload(path, compressed.blob, {
-        contentType: compressed.blob.type || file.type || undefined,
-        upsert: false,
-      });
-      if (up.error) throw up.error;
-
-      const pub = supabase.storage.from('vehicle_resources').getPublicUrl(path);
-      const publicUrl = pub.data.publicUrl;
-      const uid = await getCurrentUserId();
-
-      const ins = await supabase
-        .from('plate_logo_assets')
-        .insert({
-          name: file.name,
-          storage_bucket: 'vehicle_resources',
-          storage_path: path,
-          public_url: publicUrl,
-          created_by: uid,
-        })
-        .select('*')
-        .single();
-      if (ins.error) throw ins.error;
-
-      setPlateLogoMessage('Logo 上传成功');
-      await refreshPlateLogoAssets();
-      await savePlateLogoSettings({ ...plateLogoSettings, selected_logo_id: (ins.data as any).id });
-    } catch (e: any) {
-      setPlateLogoError(e?.message || 'Logo 上传失败');
-    } finally {
-      setPlateLogoBusy(false);
-    }
-  }
-
-  async function deletePlateLogo(asset: PlateLogoAsset) {
-    const ok = window.confirm(`确认删除该 Logo？\n${asset.name}`);
-    if (!ok) return;
-
-    setPlateLogoBusy(true);
-    setPlateLogoError(null);
-    setPlateLogoMessage(null);
-    try {
-      await supabase.storage.from(asset.storage_bucket).remove([asset.storage_path]);
-      const del = await supabase.from('plate_logo_assets').delete().eq('id', asset.id);
-      if (del.error) throw del.error;
-
-      const nextSelected = plateLogoSettings.selected_logo_id === asset.id ? null : plateLogoSettings.selected_logo_id;
-      if (nextSelected !== plateLogoSettings.selected_logo_id) {
-        await savePlateLogoSettings({ ...plateLogoSettings, selected_logo_id: nextSelected });
-      }
-
-      setPlateLogoMessage('已删除');
-      await refreshPlateLogoAssets();
-    } catch (e: any) {
-      setPlateLogoError(e?.message || '删除失败');
-    } finally {
-      setPlateLogoBusy(false);
-    }
   }
 
   async function loadBrands() {
@@ -968,8 +813,7 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
   async function uploadImagesToBucket(
     files: File[],
     target: "series-vr" | "model-images",
-    extraId?: string,
-    options?: { applyPlateReplace?: boolean }
+    extraId?: string
   ) {
     setUploading(true);
     setError(null);
@@ -979,24 +823,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
         const fileList = oversizedFiles.map(f => `${f.name} (${formatFileSize(f.size)})`).join(', ');
         setError(`文件过大：${fileList}。单文件大小不能超过 ${formatFileSize(MAX_FILE_SIZE)}`);
         return [];
-      }
-      const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim();
-
-      let selectedLogoBlob: Blob | undefined;
-      const shouldReplace = Boolean(options?.applyPlateReplace) && plateLogoSettings.enabled;
-      const selectedLogo = plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id) || null;
-
-      if (shouldReplace && !apiBaseUrl) {
-        setError('车牌替换已启用，但未配置替换服务地址（VITE_PLATE_REPLACE_API_BASE_URL）');
-        return [];
-      }
-
-      if (shouldReplace && selectedLogo?.public_url) {
-        try {
-          const r = await fetch(selectedLogo.public_url);
-          if (r.ok) selectedLogoBlob = await r.blob();
-        } catch {
-        }
       }
       const concurrency = 3;
       const results = new Array<string>(files.length);
@@ -1017,28 +843,7 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
           maxWidthOrHeight: 2048,
         });
 
-        let uploadBlob = compressed.blob;
-        if (shouldReplace) {
-          try {
-            const replaced = await maybeReplacePlateLogoBlob(uploadBlob, {
-              enabled: true,
-              apiBaseUrl: apiBaseUrl || undefined,
-              logoBlob: selectedLogoBlob,
-              timeoutMs: 60000,
-            });
-            if (replaced.replaced) {
-              uploadBlob = replaced.blob;
-              ext = 'png';
-              if (target === "series-vr") {
-                path = `vr/series_${selectedSeriesId}/${extraId || 'misc'}/${timestamp}_${random}.${ext}`;
-              } else {
-                path = `images/models/${selectedModelId}/${extraId || 'misc'}/${timestamp}_${random}.${ext}`;
-              }
-            }
-          } catch (e: any) {
-            throw new Error(`车牌替换失败：${e?.message || e || '未知错误'}`);
-          }
-        }
+        const uploadBlob = compressed.blob;
 
         const { error: uploadError } = await supabase.storage.from('car-images').upload(path, uploadBlob, {
           upsert: true,
@@ -1056,7 +861,7 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
       if (e?.message?.includes('exceeded the maximum allowed size')) {
         setError(`上传失败：文件超过了服务器允许的最大限制 (${formatFileSize(MAX_FILE_SIZE)})。请尝试压缩图片后重试。`);
       } else {
-        setError(e?.message?.startsWith('车牌替换失败') ? e.message : '图片上传失败');
+        setError(e?.message || '图片上传失败');
       }
       return [];
     } finally {
@@ -1064,80 +869,9 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
     }
   }
 
-  async function checkPlateLogoService() {
-    setPlateLogoBusy(true);
-    setPlateLogoError(null);
-    setPlateLogoMessage(null);
-    setPlateLogoHealth(null);
-    try {
-      const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim();
-      if (!apiBaseUrl) {
-        setPlateLogoHealth('未配置 VITE_PLATE_REPLACE_API_BASE_URL');
-        return;
-      }
-      const r = await fetch(`${apiBaseUrl}/api/health`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
-      setPlateLogoHealth(`正常：${JSON.stringify(json)}`);
-    } catch (e: any) {
-      setPlateLogoHealth(`失败：${e?.message || e || '未知错误'}`);
-    } finally {
-      setPlateLogoBusy(false);
-    }
-  }
-
-  async function testPlateLogoReplace(file: File) {
-    setPlateLogoBusy(true);
-    setPlateLogoError(null);
-    setPlateLogoMessage(null);
-    setPlateLogoTestInfo(null);
-    setPlateLogoTestAttempts(null);
-
-    if (plateLogoTestBeforeUrl) URL.revokeObjectURL(plateLogoTestBeforeUrl);
-    if (plateLogoTestAfterUrl) URL.revokeObjectURL(plateLogoTestAfterUrl);
-
-    const beforeUrl = URL.createObjectURL(file);
-    setPlateLogoTestBeforeUrl(beforeUrl);
-    setPlateLogoTestAfterUrl(null);
-    try {
-      const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim();
-      if (!apiBaseUrl) throw new Error('未配置 VITE_PLATE_REPLACE_API_BASE_URL');
-
-      const selectedLogo = plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id) || null;
-      let selectedLogoBlob: Blob | undefined;
-      if (selectedLogo?.public_url) {
-        const r = await fetch(selectedLogo.public_url);
-        if (r.ok) selectedLogoBlob = await r.blob();
-      }
-
-      const compressed = await compressImage(file, { maxSizeMB: 0.6, maxWidthOrHeight: 2048 });
-      const replaced = await maybeReplacePlateLogoBlob(compressed.blob, {
-        enabled: true,
-        apiBaseUrl: apiBaseUrl || undefined,
-        logoBlob: selectedLogoBlob,
-        timeoutMs: 60000,
-        strict: true,
-      });
-
-      const afterUrl = URL.createObjectURL(replaced.blob);
-      setPlateLogoTestAfterUrl(afterUrl);
-      setPlateLogoTestInfo(`检测到车牌：${replaced.detections?.length || 0} 个`);
-      setPlateLogoTestAttempts((replaced as any).attempts || null);
-      if (!replaced.replaced) {
-        setPlateLogoError('测试完成：未检测到车牌（无可替换区域）');
-      } else {
-        setPlateLogoMessage('测试完成：替换成功');
-      }
-    } catch (e: any) {
-      setPlateLogoError(`测试失败：${e?.message || e || '未知错误'}`);
-    } finally {
-      setPlateLogoBusy(false);
-    }
-  }
-
   async function handleUploadExteriorVrImages(groupId: string, files: FileList) {
     if (!seriesVrConfig) return;
-    const urls = await uploadImagesToBucket(Array.from(files), "series-vr", groupId, { applyPlateReplace: true });
+    const urls = await uploadImagesToBucket(Array.from(files), "series-vr", groupId);
     if (urls.length > 0) {
       setSeriesVrConfig({
         ...seriesVrConfig,
@@ -1168,7 +902,7 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
 
   async function handleUploadModelImages(type: "exterior" | "interior" | "official", files: FileList) {
     if (!modelImageConfig) return;
-    const urls = await uploadImagesToBucket(Array.from(files), "model-images", type, { applyPlateReplace: type === 'exterior' });
+    const urls = await uploadImagesToBucket(Array.from(files), "model-images", type);
     if (urls.length > 0) {
       setModelImageConfig({
         ...modelImageConfig,
@@ -1664,12 +1398,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
   async function handleDownloadInteriorVR() {
     if (!seriesVrConfig) return;
 
-    const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim();
-    if (plateLogoSettings.enabled && !apiBaseUrl) {
-      setError('车牌替换已启用，但未配置替换服务地址（VITE_PLATE_REPLACE_API_BASE_URL）');
-      return;
-    }
-
     setDownloading(true);
     setDownloadProgress(null);
     setError(null);
@@ -1678,29 +1406,10 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
     addLog(`开始下载内饰VR: ${seriesVrConfig.series_name} (jm_id: ${seriesVrConfig.series_jm_id})`);
 
     try {
-      let selectedLogoBlob: Blob | undefined;
-      const selectedLogo = plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id) || null;
-      if (plateLogoSettings.enabled && selectedLogo?.public_url) {
-        try {
-          const r = await fetch(selectedLogo.public_url);
-          if (r.ok) selectedLogoBlob = await r.blob();
-        } catch {
-        }
-      }
-
       const result = await downloadInteriorVRForSeries(
         seriesVrConfig.series_jm_id,
         seriesVrConfig.brand_name,
         seriesVrConfig.series_name,
-        {
-          plateLogo: {
-            enabled: plateLogoSettings.enabled,
-            apiBaseUrl: apiBaseUrl || undefined,
-            logoBlob: selectedLogoBlob,
-            timeoutMs: 60000,
-            scene: 'interior',
-          },
-        },
         (progress) => {
           setDownloadProgress(progress);
           addLog(progress.message);
@@ -1780,12 +1489,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
   async function handleDownloadExteriorVR() {
     if (!seriesVrConfig) return;
 
-    const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim();
-    if (plateLogoSettings.enabled && !apiBaseUrl) {
-      setError('车牌替换已启用，但未配置替换服务地址（VITE_PLATE_REPLACE_API_BASE_URL）');
-      return;
-    }
-
     setDownloading(true);
     setDownloadProgress(null);
     setDownloadedColorGroups([]);
@@ -1795,30 +1498,10 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
     addLog(`开始下载: ${seriesVrConfig.series_name} (jm_id: ${seriesVrConfig.series_jm_id})`);
 
     try {
-      let selectedLogoBlob: Blob | undefined;
-      const selectedLogo = plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id) || null;
-      if (plateLogoSettings.enabled && selectedLogo?.public_url) {
-        try {
-          const r = await fetch(selectedLogo.public_url);
-          if (r.ok) {
-            selectedLogoBlob = await r.blob();
-          }
-        } catch {
-        }
-      }
-
       const result = await downloadExteriorVRForSeries(
         seriesVrConfig.series_jm_id,
         seriesVrConfig.brand_name,
         seriesVrConfig.series_name,
-        {
-          plateLogo: {
-            enabled: plateLogoSettings.enabled,
-            apiBaseUrl: apiBaseUrl || undefined,
-            logoBlob: selectedLogoBlob,
-            timeoutMs: 60000,
-          },
-        },
         (progress) => {
           setDownloadProgress(progress);
           addLog(progress.message);
@@ -1883,22 +1566,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
     addModelLog(`开始下载${label}: ${modelImageConfig.model_name} (jm_id: ${modelImageConfig.model_jm_id})`);
 
     try {
-      const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim();
-      if (category === 'exterior' && plateLogoSettings.enabled && !apiBaseUrl) {
-        setError('车牌替换已启用，但未配置替换服务地址（VITE_PLATE_REPLACE_API_BASE_URL）');
-        return;
-      }
-
-      let selectedLogoBlob: Blob | undefined;
-      const selectedLogo = plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id) || null;
-      if (category === 'exterior' && plateLogoSettings.enabled && selectedLogo?.public_url) {
-        try {
-          const r = await fetch(selectedLogo.public_url);
-          if (r.ok) selectedLogoBlob = await r.blob();
-        } catch {
-        }
-      }
-
       const result = await downloadImagesForModelCategory(
         modelImageConfig.series_jm_id,
         modelImageConfig.brand_name,
@@ -1909,16 +1576,7 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
         (progress) => {
           setModelDownloadProgress(progress);
           addModelLog(progress.message);
-        },
-        category === 'exterior'
-          ? {
-              enabled: plateLogoSettings.enabled,
-              apiBaseUrl: apiBaseUrl || undefined,
-              logoBlob: selectedLogoBlob,
-              timeoutMs: 60000,
-              scene: 'exterior',
-            }
-          : undefined
+        }
       );
 
       if (result.images.length > 0) {
@@ -2283,19 +1941,11 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
                               .filter((s) => s.brand_jm_id === selectedBrandId)
                               .map((s) => ({ id: s.id ?? null, jm_id: s.jm_id, name: s.name, activity_status: s.activity_status }));
 
-                            const apiBaseUrl = String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '').trim() || undefined;
-                            const selectedLogoUrl = plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id)?.public_url ?? null;
-
                             void startBrandVrBatchDownload({
                               brandJmId: selectedBrandId,
                               brandName,
                               seriesPool,
                               onlyNormal: onlyNormalSelection,
-                              plateLogo: {
-                                enabled: plateLogoSettings.enabled,
-                                apiBaseUrl,
-                                selectedLogoUrl,
-                              },
                             }).catch((e: any) => {
                               setError(e?.message || String(e) || '批量下载失败');
                             });
@@ -2593,203 +2243,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
                 <div className="p-4 rounded-lg border border-zinc-200 bg-white">
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-zinc-800">车牌替换 Logo（外观VR下载）</div>
-                      <div className="text-xs text-zinc-500 mt-1">
-                        开启后：外观VR每张图片压缩完成后，会调用替换服务把车牌区域替换为所选 Logo。
-                      </div>
-                    </div>
-
-                    <label className="flex items-center gap-2 text-sm text-zinc-700 whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={plateLogoSettings.enabled}
-                        disabled={plateLogoBusy}
-                        onChange={(e) => void savePlateLogoSettings({
-                          ...plateLogoSettings,
-                          enabled: e.target.checked,
-                        })}
-                      />
-                      启用
-                    </label>
-                  </div>
-
-                  {plateLogoError && (
-                    <div className="mt-3 p-2 rounded bg-red-50 text-red-700 text-sm">{plateLogoError}</div>
-                  )}
-                  {plateLogoMessage && (
-                    <div className="mt-3 p-2 rounded bg-green-50 text-green-700 text-sm">{plateLogoMessage}</div>
-                  )}
-
-                  <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="rounded-lg border border-zinc-200 p-3">
-                      <div className="text-xs font-medium text-zinc-600">当前选择</div>
-                      <div className="mt-2 flex items-center gap-3">
-                        <div className="w-16 h-16 rounded border border-zinc-200 bg-zinc-50 flex items-center justify-center overflow-hidden">
-                          {plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id)?.public_url ? (
-                            <img
-                              src={plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id)!.public_url}
-                              alt="selected-logo"
-                              className="max-w-full max-h-full"
-                            />
-                          ) : (
-                            <span className="text-xs text-zinc-400">未选择</span>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm text-zinc-800 truncate">
-                            {plateLogoAssets.find((a) => a.id === plateLogoSettings.selected_logo_id)?.name || '未选择（将使用内置 Logo）'}
-                          </div>
-                          <div className="text-xs text-zinc-500 mt-1 truncate">
-                            服务地址：{String(import.meta.env.VITE_PLATE_REPLACE_API_BASE_URL || '未配置')}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex items-center gap-2">
-                        <label className={secondaryButtonCls()}>
-                          上传新 Logo
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={plateLogoBusy}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              e.currentTarget.value = '';
-                              if (f) void uploadPlateLogo(f);
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className={secondaryButtonCls()}
-                          disabled={plateLogoBusy}
-                          onClick={() => {
-                            void refreshPlateLogoAssets();
-                            void refreshPlateLogoSettings();
-                          }}
-                        >
-                          刷新
-                        </button>
-                        <button
-                          type="button"
-                          className={secondaryButtonCls()}
-                          disabled={plateLogoBusy}
-                          onClick={() => void savePlateLogoSettings({ ...plateLogoSettings, selected_logo_id: null })}
-                        >
-                          清空选择
-                        </button>
-                        <button
-                          type="button"
-                          className={secondaryButtonCls()}
-                          disabled={plateLogoBusy}
-                          onClick={() => void checkPlateLogoService()}
-                        >
-                          检查服务
-                        </button>
-                      </div>
-
-                      {plateLogoHealth && (
-                        <div className="mt-3 text-xs text-zinc-600 break-all">{plateLogoHealth}</div>
-                      )}
-
-                      <div className="mt-4 rounded-lg border border-zinc-200 p-3">
-                        <div className="text-xs font-medium text-zinc-600">测试替换（先压缩再替换）</div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <label className={secondaryButtonCls()}>
-                            选择一张车图
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              disabled={plateLogoBusy}
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                e.currentTarget.value = '';
-                                if (f) void testPlateLogoReplace(f);
-                              }}
-                            />
-                          </label>
-                          {plateLogoTestInfo && (
-                            <div className="text-xs text-zinc-600">{plateLogoTestInfo}</div>
-                          )}
-                        </div>
-
-                        {(plateLogoTestBeforeUrl || plateLogoTestAfterUrl) && (
-                          <div className="mt-3 grid grid-cols-2 gap-3">
-                            <div className="rounded border border-zinc-200 bg-zinc-50 overflow-hidden">
-                              <div className="text-xs text-zinc-600 p-2">压缩前</div>
-                              {plateLogoTestBeforeUrl && <img src={plateLogoTestBeforeUrl} alt="before" className="w-full" />}
-                            </div>
-                            <div className="rounded border border-zinc-200 bg-zinc-50 overflow-hidden">
-                              <div className="text-xs text-zinc-600 p-2">替换后</div>
-                              {plateLogoTestAfterUrl && <img src={plateLogoTestAfterUrl} alt="after" className="w-full" />}
-                            </div>
-                          </div>
-                        )}
-
-                        {plateLogoTestAttempts && plateLogoTestAttempts.length > 0 ? (
-                          <div className="mt-3 text-xs text-zinc-600">
-                            <div className="font-medium text-zinc-700">识别尝试</div>
-                            <div className="mt-1 space-y-1">
-                              {plateLogoTestAttempts.map((a, idx) => (
-                                <div key={idx} className="break-all">
-                                  {a.input} | conf={a.conf} | imgsz={a.imgsz ?? '-'} | count={a.count}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-zinc-200 p-3">
-                      <div className="text-xs font-medium text-zinc-600">素材库</div>
-                      {plateLogoAssets.length === 0 ? (
-                        <div className="mt-3 text-sm text-zinc-500">暂无 Logo，请先上传。</div>
-                      ) : (
-                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {plateLogoAssets.map((asset) => {
-                            const selected = asset.id === plateLogoSettings.selected_logo_id;
-                            return (
-                              <div
-                                key={asset.id}
-                                className={`rounded-lg border p-2 ${selected ? 'border-green-300 bg-green-50' : 'border-zinc-200 bg-white'}`}
-                              >
-                                <div className="w-full aspect-square rounded border border-zinc-200 bg-zinc-50 flex items-center justify-center overflow-hidden">
-                                  <img src={asset.public_url} alt={asset.name} className="max-w-full max-h-full" />
-                                </div>
-                                <div className="mt-2 text-xs text-zinc-700 truncate" title={asset.name}>{asset.name}</div>
-                                <div className="mt-2 flex gap-2">
-                                  <button
-                                    type="button"
-                                    className={`flex-1 px-2 py-1 rounded text-xs font-medium border ${selected ? 'bg-green-600 text-white border-green-600' : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'}`}
-                                    disabled={plateLogoBusy}
-                                    onClick={() => void savePlateLogoSettings({ ...plateLogoSettings, selected_logo_id: asset.id })}
-                                  >
-                                    {selected ? '已选择' : '选择'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="px-2 py-1 rounded text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50"
-                                    disabled={plateLogoBusy}
-                                    onClick={() => void deletePlateLogo(asset)}
-                                  >
-                                    删除
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-lg border border-zinc-200 bg-white">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-zinc-800">内饰VR位置显示（全站）</div>
                       <div className="text-xs text-zinc-500 mt-1">
                         用于统一控制前台「内饰VR」哪些视角显示/隐藏。
@@ -2844,7 +2297,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
                         {downloadProgress.stage === "collecting" && "📡 收集图片中"}
                         {downloadProgress.stage === "downloading" && "⬇️ 下载图片中"}
                         {downloadProgress.stage === "compressing" && "🗜️ 压缩图片中"}
-                        {downloadProgress.stage === "replacing" && "🚘 车牌替换中"}
                         {downloadProgress.stage === "done" && "✅ 下载完成"}
                         {downloadProgress.stage === "error" && "❌ 下载失败"}
                       </span>
@@ -3097,7 +2549,6 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
                         {modelDownloadProgress.stage === "collecting" && "📡 收集中"}
                         {modelDownloadProgress.stage === "downloading" && "⬇️ 下载中"}
                         {modelDownloadProgress.stage === "compressing" && "🗜️ 压缩中"}
-                        {modelDownloadProgress.stage === "replacing" && "🚘 车牌替换中"}
                         {modelDownloadProgress.stage === "done" && "✅ 完成"}
                         {modelDownloadProgress.stage === "error" && "❌ 失败"}
                       </span>
@@ -3192,7 +2643,7 @@ export default function AdminModelResources(props: { jump?: MaterialResourceJump
               </div>
             )
           )}
-          
+
           {section === "overview" && (
             <ResourceOverviewTable />
           )}

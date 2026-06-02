@@ -65,6 +65,11 @@ type InquiryOverviewRow = {
   next_follow_up_at: string | null;
   assigned_admin_id: string | null;
   admin_note: string | null;
+  inquiry_destination_port?: string | null;
+  inquiry_incoterm?: string | null;
+  inquiry_total_quantity?: number | null;
+  inquiry_need_by?: string | null;
+  inquiry_note?: string | null;
   created_at: string;
   updated_at: string;
   customer_id: string | null;
@@ -79,7 +84,9 @@ type InquiryOverviewRow = {
 type InquiryItemRow = {
   id: string;
   inquiry_id: string;
+  item_type: "model" | "series";
   model_id: string | null;
+  series_id: string | null;
   quantity: number | null;
   note: string | null;
 };
@@ -121,6 +128,37 @@ function fromDateTimeLocalValue(v: string) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
+}
+
+function mapInquiryRows(rows: Array<Record<string, any>>) {
+  return rows.map((r) => {
+    const customer = (r as any)?.customer ?? null;
+    const itemsCount = Array.isArray((r as any)?.inquiry_items) ? (r as any).inquiry_items.length : 0;
+    return {
+      inquiry_id: String((r as any).id),
+      inquiry_no: String((r as any).inquiry_no ?? ""),
+      locale: (r as any).locale ?? null,
+      status: (r as any).status as InquiryStatus,
+      priority: ((r as any).priority ?? "normal") as InquiryPriority,
+      next_follow_up_at: (r as any).next_follow_up_at ?? null,
+      assigned_admin_id: (r as any).assigned_admin_id ?? null,
+      admin_note: (r as any).admin_note ?? null,
+      inquiry_destination_port: (r as any).destination_port ?? null,
+      inquiry_incoterm: (r as any).incoterm ?? null,
+      inquiry_total_quantity: (r as any).total_quantity ?? null,
+      inquiry_need_by: (r as any).need_by ?? null,
+      inquiry_note: (r as any).note ?? null,
+      created_at: String((r as any).created_at ?? ""),
+      updated_at: String((r as any).updated_at ?? ""),
+      customer_id: (r as any).customer_id ?? null,
+      customer_email: ((r as any).email ?? customer?.email ?? null) as string | null,
+      customer_company_name: ((r as any).company_name ?? customer?.company_name ?? null) as string | null,
+      customer_contact_name: ((r as any).contact_name ?? customer?.contact_name ?? null) as string | null,
+      customer_whatsapp: ((r as any).whatsapp ?? customer?.whatsapp ?? null) as string | null,
+      customer_country_region: ((r as any).country_region ?? customer?.country_region ?? null) as string | null,
+      items_count: itemsCount,
+    } satisfies InquiryOverviewRow;
+  });
 }
 
 function statusBadgeType(status: string): "success" | "warning" | "info" | "default" {
@@ -245,12 +283,74 @@ export default function AdminCustomerManagement() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: e } = await supabase
-        .from("inquiry_overview")
-        .select("*")
+      const selectWithCustomer = `
+          id,
+          inquiry_no,
+          locale,
+          status,
+          priority,
+          next_follow_up_at,
+          assigned_admin_id,
+          admin_note,
+          destination_port,
+          incoterm,
+          total_quantity,
+          need_by,
+          note,
+          created_at,
+          updated_at,
+          customer_id,
+          email,
+          company_name,
+          contact_name,
+          whatsapp,
+          country_region,
+          inquiry_items ( id ),
+          customer:customers (
+            id,
+            email,
+            company_name,
+            contact_name,
+            whatsapp,
+            country_region
+          )
+        `;
+
+      const selectWithoutCustomer = `
+          id,
+          inquiry_no,
+          locale,
+          status,
+          priority,
+          next_follow_up_at,
+          assigned_admin_id,
+          admin_note,
+          destination_port,
+          incoterm,
+          total_quantity,
+          need_by,
+          note,
+          created_at,
+          updated_at,
+          customer_id,
+          email,
+          company_name,
+          contact_name,
+          whatsapp,
+          country_region,
+          inquiry_items ( id )
+        `;
+
+      let { data, error: e } = await supabase
+        .from("inquiries")
+        .select(selectWithCustomer)
         .order("created_at", { ascending: false });
+      if (e && String((e as any)?.message ?? "").includes("relationship")) {
+        ({ data, error: e } = await supabase.from("inquiries").select(selectWithoutCustomer).order("created_at", { ascending: false }));
+      }
       if (e) throw e;
-      setInquiries((data ?? []) as InquiryOverviewRow[]);
+
+      setInquiries(mapInquiryRows((data ?? []) as Array<Record<string, any>>));
     } catch (e2: unknown) {
       setError(e2 instanceof Error ? e2.message : "加载失败");
     } finally {
@@ -456,21 +556,80 @@ function CustomerDetailModal(props: {
 
   useEffect(() => {
     if (!props.open || !props.customer) return;
+
+    const selectWithCustomer = `
+        id,
+        inquiry_no,
+        locale,
+        status,
+        priority,
+        next_follow_up_at,
+        assigned_admin_id,
+        admin_note,
+        created_at,
+        updated_at,
+        customer_id,
+        email,
+        company_name,
+        contact_name,
+        whatsapp,
+        country_region,
+        inquiry_items ( id ),
+        customer:customers (
+          id,
+          email,
+          company_name,
+          contact_name,
+          whatsapp,
+          country_region
+        )
+      `;
+
+    const selectWithoutCustomer = `
+        id,
+        inquiry_no,
+        locale,
+        status,
+        priority,
+        next_follow_up_at,
+        assigned_admin_id,
+        admin_note,
+        created_at,
+        updated_at,
+        customer_id,
+        email,
+        company_name,
+        contact_name,
+        whatsapp,
+        country_region,
+        inquiry_items ( id )
+      `;
+
     let cancelled = false;
-    supabase
-      .from("inquiry_overview")
-      .select("*")
-      .eq("customer_id", props.customer.customer_id)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled) return;
+    (async () => {
+      try {
+        let { data, error } = await supabase
+          .from("inquiries")
+          .select(selectWithCustomer)
+          .eq("customer_id", props.customer.customer_id)
+          .order("created_at", { ascending: false });
+
+        if (error && String((error as any)?.message ?? "").includes("relationship")) {
+          ({ data, error } = await supabase
+            .from("inquiries")
+            .select(selectWithoutCustomer)
+            .eq("customer_id", props.customer.customer_id)
+            .order("created_at", { ascending: false }));
+        }
         if (error) throw error;
-        setInquiries((data ?? []) as InquiryOverviewRow[]);
-      })
-      .catch(() => {
+        if (cancelled) return;
+        setInquiries(mapInquiryRows((data ?? []) as Array<Record<string, any>>));
+      } catch {
         if (cancelled) return;
         setInquiries([]);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -621,6 +780,7 @@ function InquiryDetailModal(props: {
   const [items, setItems] = useState<InquiryItemRow[]>([]);
   const [events, setEvents] = useState<InquiryEventRow[]>([]);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
+  const [seriesNames, setSeriesNames] = useState<Record<string, string>>({});
 
   const [status, setStatus] = useState<InquiryStatus>("new");
   const [priority, setPriority] = useState<InquiryPriority>("normal");
@@ -647,7 +807,7 @@ function InquiryDetailModal(props: {
     let cancelled = false;
     supabase
       .from("inquiry_items")
-      .select("id, inquiry_id, model_id, quantity, note")
+      .select("id, inquiry_id, item_type, model_id, series_id, quantity, note")
       .eq("inquiry_id", props.inquiry.inquiry_id)
       .then(({ data, error }) => {
         if (cancelled) return;
@@ -690,6 +850,38 @@ function InquiryDetailModal(props: {
       .catch(() => {
         if (cancelled) return;
         setModelNames({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [items, props.open]);
+
+  useEffect(() => {
+    if (!props.open) return;
+    const ids = Array.from(new Set(items.map((x) => x.series_id).filter(Boolean) as string[]));
+    if (ids.length === 0) {
+      setSeriesNames({});
+      return;
+    }
+
+    let cancelled = false;
+    supabase
+      .from("series")
+      .select("id, name, fullname, brand_name")
+      .in("id", ids)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) throw error;
+        const map: Record<string, string> = {};
+        for (const row of (data ?? []) as any[]) {
+          const parts = [row.brand_name, row.fullname || row.name].filter(Boolean);
+          map[String(row.id)] = parts.length > 0 ? parts.join(" · ") : String(row.id);
+        }
+        setSeriesNames(map);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSeriesNames({});
       });
     return () => {
       cancelled = true;
@@ -944,7 +1136,13 @@ function InquiryDetailModal(props: {
                 {items.map((it) => (
                   <div key={it.id} className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
                     <div className="text-sm font-semibold text-zinc-900">
-                      {it.model_id ? modelNames[it.model_id] ?? it.model_id : "-"}
+                      {it.item_type === "series"
+                        ? it.series_id
+                          ? seriesNames[it.series_id] ?? it.series_id
+                          : "-"
+                        : it.model_id
+                          ? modelNames[it.model_id] ?? it.model_id
+                          : "-"}
                     </div>
                     <div className="mt-1 text-xs text-zinc-500">{[it.quantity != null ? `数量: ${it.quantity}` : null, it.note].filter(Boolean).join(" · ")}</div>
                   </div>
@@ -1010,8 +1208,22 @@ function InquiryDetailModal(props: {
               <div className="mt-3 grid gap-2 text-sm text-zinc-700 md:grid-cols-2">
                 <div>创建时间：{fmtTime(props.inquiry.created_at)}</div>
                 <div>语言：{safeText(props.inquiry.locale)}</div>
+                <div>公司：{safeText(props.inquiry.customer_company_name)}</div>
+                <div>联系人：{safeText(props.inquiry.customer_contact_name)}</div>
+                <div>邮箱：{safeText(props.inquiry.customer_email)}</div>
+                <div>WhatsApp：{safeText(props.inquiry.customer_whatsapp)}</div>
                 <div>国家/地区：{safeText(props.inquiry.customer_country_region)}</div>
+                <div>目的港：{safeText(props.inquiry.inquiry_destination_port)}</div>
+                <div>Incoterm：{safeText(props.inquiry.inquiry_incoterm)}</div>
+                <div>总数量：{props.inquiry.inquiry_total_quantity != null ? props.inquiry.inquiry_total_quantity : "-"}</div>
+                <div>需求时间：{safeText(props.inquiry.inquiry_need_by)}</div>
                 <div>下次跟进：{fmtTime(props.inquiry.next_follow_up_at)}</div>
+              </div>
+              <div className="mt-4">
+                <div className="text-xs font-semibold text-zinc-600">客户备注（原文）</div>
+                <div className="mt-2 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900">
+                  {safeText(props.inquiry.inquiry_note)}
+                </div>
               </div>
             </div>
           ) : null}
