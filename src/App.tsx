@@ -3,7 +3,6 @@ import LocaleLayout from "@/routes/LocaleLayout";
 import RootRedirect from "@/routes/RootRedirect";
 import Home from "@/pages/Home";
 import ModelProfessionalDetail from "@/pages/ModelProfessionalDetail";
-import ModelDetail from "@/pages/ModelDetail";
 import SeriesDetail from "@/pages/SeriesDetail";
 import Inquiry from "@/pages/Inquiry";
 import BrandsList from "@/pages/BrandsList";
@@ -18,7 +17,6 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="brands" element={<BrandsList />} />
           <Route path="series/:id" element={<SeriesDetail />} />
-          <Route path="model/:id" element={<ModelDetail />} />
           <Route path="models/all" element={<Navigate to="../brands" replace />} />
           <Route path="models/:slug" element={<ModelProfessionalDetail />} />
           <Route path="inquiry" element={<Inquiry />} />
