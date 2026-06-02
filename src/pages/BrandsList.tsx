@@ -592,7 +592,7 @@ export default function BrandsList() {
                 ) : filteredBrands.length === 0 ? (
                   <div className="py-6 text-center text-sm text-zinc-600">{t('brands.noMatch')}</div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-2">
                     {filteredBrands.map((brand) => {
                       const active = selectedBrand?.id === brand.id;
                       return (

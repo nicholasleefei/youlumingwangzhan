@@ -437,7 +437,7 @@ export default function Home() {
                     >
                       <div className={reverse ? 'grid grid-cols-1 lg:grid-cols-12' : 'grid grid-cols-1 lg:grid-cols-12'}>
                         <div className={reverse ? 'order-2 lg:order-2 lg:col-span-7' : 'order-2 lg:order-1 lg:col-span-7'}>
-                          <div className="relative h-full min-h-[320px]">
+                          <div className="relative h-full min-h-[200px] md:min-h-[320px]">
                             {m.cover_url || m.logo_url ? (
                               <SafeImage
                                 src={m.cover_url || m.logo_url || undefined}
@@ -493,7 +493,7 @@ export default function Home() {
                                 </div>
                               </div>
 
-                              <div className="mt-5 flex items-center gap-6 text-sm font-semibold text-black">
+                              <div className="mt-5 flex flex-wrap items-center gap-4 sm:gap-6 text-sm font-semibold text-black">
                                 <div className="text-center">
                                   <div className="text-xs text-black/45">{t('common.level')}</div>
                                   <div className="mt-1">{m.spec_a || m.sizetype || '—'}</div>

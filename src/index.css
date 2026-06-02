@@ -109,6 +109,12 @@ body {
   background: var(--color-primary-dark);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Mobile touch optimization */
+button, a, [role="button"] {
+  touch-action: manipulation;
 }
 
 .premium-scroll {
@@ -1038,6 +1044,10 @@ section {
 
   .studio-hero-left-lift {
     transform: translateY(-140px);
+  }
+
+  .studio-hero {
+    min-height: 400px;
   }
 
   .hero-description {

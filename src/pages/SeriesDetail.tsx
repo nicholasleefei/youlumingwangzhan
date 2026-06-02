@@ -1098,7 +1098,7 @@ export default function SeriesDetail() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: Math.max(600, compareModels.length * 220) }}>
+            <table className="w-full text-xs sm:text-sm" style={{ minWidth: Math.max(480, compareModels.length * 160) }}>
               <thead>
                 <tr className="bg-zinc-100">
                   <th className="sticky left-0 z-10 bg-zinc-100 px-5 py-3 text-left font-semibold text-zinc-700 border-r border-zinc-200 min-w-[140px]">

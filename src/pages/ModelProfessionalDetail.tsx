@@ -144,7 +144,7 @@ export default function ModelProfessionalDetail() {
 
       {!loading && data && (
         <main className="relative z-10">
-          <section className="relative h-[70vh] min-h-[500px] overflow-hidden">
+          <section className="relative h-[70vh] min-h-[300px] sm:min-h-[500px] overflow-hidden">
             <img
               src={coverImage}
               alt={name}

@@ -39,7 +39,7 @@ export default function LanguageSwitcher() {
       {open ? (
         <div
           role="listbox"
-          className="absolute z-20 mt-2 max-h-80 w-56 overflow-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-xl"
+          className="absolute right-0 z-20 mt-2 max-h-80 w-56 min-w-[180px] overflow-auto rounded-lg border border-zinc-200 bg-white p-1 shadow-xl"
         >
           {SUPPORTED_LOCALES.map((l) => (
             <button
