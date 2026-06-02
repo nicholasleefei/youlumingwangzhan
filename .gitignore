@@ -39,9 +39,30 @@ migrations/
 *.pt
 *.rar
 
+# Doc files from early setup (not project code)
+APPLY_MIGRATION_GUIDE.md
+DATABASE_SUMMARY.md
+DELETE_MODEL_IMAGES_BUCKET.md
+FULL_CHECK_REPORT.md
+JUMDATA_COMPLETE_CHECK_GUIDE.md
+JUMDATA_INTEGRITY_CHECK.md
+MODEL_DETAILS_SETUP_GUIDE.md
+OPTIMIZATION_REPORT.md
+REFACTORING_SUMMARY.md
+STARTUP_GUIDE.md
+TROUBLESHOOTING.md
+database_analysis.md
+
 # Env
 .env
 .secrets/
+
+# Trae/Claude/Kiro skills (IDE managed, not project code)
+.agents/
+.claude/
+.kiro/
+.trae/
+skills/
 
 # Supabase local
 supabase/.temp/
