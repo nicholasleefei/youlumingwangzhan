@@ -1055,6 +1055,34 @@ section {
   }
 }
 
+/* Mobile navbar adjustments */
+@media (max-width: 767px) {
+  .navbar {
+    padding: 0.75rem 0;
+  }
+
+  .navbar-brand {
+    gap: 0.5rem;
+  }
+
+  .logo-circle {
+    width: 34px;
+    height: 34px;
+  }
+
+  .brand-text h1 {
+    font-size: 1.125rem;
+  }
+
+  .brand-text p {
+    font-size: 0.625rem;
+  }
+
+  .navbar-right {
+    gap: 0.5rem;
+  }
+}
+
 /* ========== Enhanced Glass Morphism Variations ========== */
 
 .glass-card-strong {
