@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { pageCardCls, pageTitleCls, pageDescCls, subTabCls, primaryButtonCls, secondaryButtonCls, inputCls, labelCls } from "@/admin/AdminApp";
 
-type SettingsTab = "basic" | "email" | "api" | "security" | "backup" | "info" | "jumdata";
+type SettingsTab = "jumdata";
 
 export default function AdminSettings() {
-  const [tab, setTab] = useState<SettingsTab>("basic");
+  const [tab, setTab] = useState<SettingsTab>("jumdata");
 
   return (
     <div className={pageCardCls() + " p-8"}>
@@ -19,48 +19,6 @@ export default function AdminSettings() {
         <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-3">
           <button
             type="button"
-            onClick={() => setTab("basic")}
-            className={subTabCls(tab === "basic")}
-          >
-            基础设置
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("email")}
-            className={subTabCls(tab === "email")}
-          >
-            邮件配置
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("api")}
-            className={subTabCls(tab === "api")}
-          >
-            API 设置
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("security")}
-            className={subTabCls(tab === "security")}
-          >
-            安全设置
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("backup")}
-            className={subTabCls(tab === "backup")}
-          >
-            数据备份
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("info")}
-            className={subTabCls(tab === "info")}
-          >
-            系统信息
-          </button>
-          <button
-            type="button"
             onClick={() => setTab("jumdata")}
             className={subTabCls(tab === "jumdata")}
           >
@@ -70,126 +28,6 @@ export default function AdminSettings() {
       </div>
 
       <div className="space-y-8">
-        {tab === "basic" ? (
-          <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                <span className="text-blue-600 text-xl">⚙️</span>
-              </div>
-              <h4 className="text-xl font-semibold text-zinc-900">基础设置</h4>
-            </div>
-            <p className="text-base text-zinc-600 mb-6 leading-relaxed">
-              系统基础信息和常规配置
-            </p>
-            <button
-              type="button"
-              className={primaryButtonCls()}
-            >
-              配置基础信息
-            </button>
-          </div>
-        ) : null}
-
-        {tab === "email" ? (
-          <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center">
-                <span className="text-green-600 text-xl">📧</span>
-              </div>
-              <h4 className="text-xl font-semibold text-zinc-900">邮件配置</h4>
-            </div>
-            <p className="text-base text-zinc-600 mb-6 leading-relaxed">
-              邮件发送和通知配置
-            </p>
-            <button
-              type="button"
-              className={primaryButtonCls()}
-            >
-              配置邮件
-            </button>
-          </div>
-        ) : null}
-
-        {tab === "api" ? (
-          <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                <span className="text-purple-600 text-xl">🔌</span>
-              </div>
-              <h4 className="text-xl font-semibold text-zinc-900">API 设置</h4>
-            </div>
-            <p className="text-base text-zinc-600 mb-6 leading-relaxed">
-              第三方 API 接口配置
-            </p>
-            <button
-              type="button"
-              className={primaryButtonCls()}
-            >
-              配置 API
-            </button>
-          </div>
-        ) : null}
-
-        {tab === "security" ? (
-          <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-red-100 flex items-center justify-center">
-                <span className="text-red-600 text-xl">🔒</span>
-              </div>
-              <h4 className="text-xl font-semibold text-zinc-900">安全设置</h4>
-            </div>
-            <p className="text-base text-zinc-600 mb-6 leading-relaxed">
-              系统安全和权限设置
-            </p>
-            <button
-              type="button"
-              className={primaryButtonCls()}
-            >
-              配置安全
-            </button>
-          </div>
-        ) : null}
-
-        {tab === "backup" ? (
-          <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                <span className="text-amber-600 text-xl">💾</span>
-              </div>
-              <h4 className="text-xl font-semibold text-zinc-900">数据备份</h4>
-            </div>
-            <p className="text-base text-zinc-600 mb-6 leading-relaxed">
-              数据库备份和恢复
-            </p>
-            <button
-              type="button"
-              className={primaryButtonCls()}
-            >
-              管理备份
-            </button>
-          </div>
-        ) : null}
-
-        {tab === "info" ? (
-          <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-                <span className="text-indigo-600 text-xl">ℹ️</span>
-              </div>
-              <h4 className="text-xl font-semibold text-zinc-900">系统信息</h4>
-            </div>
-            <p className="text-base text-zinc-600 mb-6 leading-relaxed">
-              系统状态和版本信息
-            </p>
-            <button
-              type="button"
-              className={primaryButtonCls()}
-            >
-              查看信息
-            </button>
-          </div>
-        ) : null}
-
         {tab === "jumdata" ? (
           <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-8">
             <div className="flex items-center gap-3 mb-6">

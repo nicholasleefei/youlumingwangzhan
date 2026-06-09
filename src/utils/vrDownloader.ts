@@ -1026,7 +1026,19 @@ export async function downloadImagesForModelCategory(
     const callist = pp?.SeriesPicList?.picinfo?.callist;
     if (!Array.isArray(callist) || callist.length === 0) break;
 
-    const targetCat = pickCallistCategory(callist, category);
+    let targetCat = pickCallistCategory(callist, category);
+    // Fallback: 汽车之家已不再提供"官图"分类，回退到"外观"图
+    if (!targetCat && category === "official") {
+      targetCat = pickCallistCategory(callist, "exterior");
+      if (targetCat && pageNo === 1) {
+        onProgress?.({
+          stage: "collecting",
+          current: 20,
+          total: 100,
+          message: `未找到${label}分类，回退到外观图`,
+        });
+      }
+    }
     if (!targetCat) break;
 
     const rawList = Array.isArray(targetCat?.list) ? targetCat.list : [];
@@ -1190,7 +1202,19 @@ export async function downloadOfficialImagesForSeries(
     const callist = pp?.SeriesPicList?.picinfo?.callist;
     if (!Array.isArray(callist) || callist.length === 0) break;
 
-    const targetCat = pickCallistCategory(callist, "official");
+    let targetCat = pickCallistCategory(callist, "official");
+    // Fallback: 汽车之家已不再提供"官图"分类，回退到车系级别的"外观"图
+    if (!targetCat) {
+      targetCat = pickCallistCategory(callist, "exterior");
+      if (targetCat && pageNo === 1) {
+        onProgress?.({
+          stage: "collecting",
+          current: 20,
+          total: 100,
+          message: `未找到官图分类，回退到外观图 (车系ID: ${autohomeSeriesId})`,
+        });
+      }
+    }
     if (!targetCat) break;
 
     if (pageNo === 1) {
@@ -1200,7 +1224,7 @@ export async function downloadOfficialImagesForSeries(
         stage: "collecting",
         current: 20,
         total: 100,
-        message: `官图总数(汽车之家): ${categoryTotal || '未知'}，目标抓取: ${limit}`,
+        message: `图片总数(汽车之家): ${categoryTotal || '未知'}，目标抓取: ${limit}`,
       });
     }
 

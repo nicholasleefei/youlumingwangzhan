@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import BatchOperations from "@/components/admin/BatchOperations";
 import StagedCrudToolbar from "@/components/admin/StagedCrudToolbar";
@@ -7,19 +7,8 @@ import { confirmJumdataQueryIfExists } from "@/utils/jumdataQueryGuard";
 import { fieldLabels, tableFieldConfigs, getFieldLabel, getActivityStatusLabel, getActivityStatusColor } from "@/utils/fieldLabels";
 import type { StagedItem } from "@/utils/stagedCrud";
 import { proxiedImageUrl } from "@/utils/proxyUrl";
-import { clearEntityTranslationCache } from "@/utils/entityTranslation";
-import { LOCALE_LABELS, type Locale } from "@/i18n/locales";
-
-type TranslationProgress = {
-  open: boolean;
-  entityType: string;
-  entityName: string;
-  jmId: number;
-  logs: Array<{ locale: string; key: string; source: string; translated: string }>;
-  errors: Array<{ locale: string; error: string }>;
-  done: number;
-  total: number;
-};
+import { useEntityTranslation, TARGET_LOCALES } from "@/utils/useEntityTranslation";
+import { LOCALE_LABELS } from "@/i18n/locales";
 
 type JmSubcompany = {
   initial: string;
@@ -111,114 +100,19 @@ export default function AdminSeries() {
 
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [commitBusy, setCommitBusy] = useState(false);
-  const [translatingId, setTranslatingId] = useState<number | null>(null);
-  const [transProgress, setTransProgress] = useState<TranslationProgress>({
-    open: false, entityType: "", entityName: "", jmId: 0, logs: [], errors: [], done: 0, total: 0,
-  });
-  const [batchTranslating, setBatchTranslating] = useState(false);
-  const batchAbortRef = useRef(false);
-
-  async function translateSingle(jmId: number, entityName: string) {
-    setTranslatingId(jmId);
-    const targetLocales = (await supabase.from("site_config").select("value").eq("key", "db_translation_ai").maybeSingle()).data?.value?.target_locales ?? ["en"];
-    setTransProgress({ open: true, entityType: "series", entityName, jmId, logs: [], errors: [], done: 0, total: targetLocales.filter((l: string) => l !== "zh-CN").length });
-    try {
-      const { data, error } = await supabase.functions.invoke("db-translate", {
-        body: { action: "translate_single", entityType: "series", jmId: String(jmId) },
-      });
-      if (error) throw error;
-      if (data?.details?.length) {
-        setTransProgress(prev => {
-          const logs: TranslationProgress["logs"] = [];
-          const errors: TranslationProgress["errors"] = [];
-          for (const d of data.details) {
-            if (d.error) errors.push({ locale: d.locale, error: d.error });
-            else logs.push({ locale: d.locale, key: d.key, source: d.source, translated: d.translated });
-          }
-          return { ...prev, logs, errors, done: logs.length + errors.length };
-        });
-        for (const d of data.details) {
-          if (d.error) setError(`翻译失败 [${d.locale}]: ${d.error}`);
-        }
-      }
-      clearEntityTranslationCache();
-      await loadDbSeries();
-    } catch (e: any) {
-      setTransProgress(prev => ({ ...prev, errors: [...prev.errors, { locale: "-", error: e?.message || "翻译失败" }] }));
-      setError(e?.message || "翻译失败");
-    } finally {
-      setTranslatingId(null);
-    }
-  }
-
-  async function batchTranslate() {
-    if (selectedIds.length === 0) return;
-    const selectedSeries = viewSeries.filter(s => selectedIds.includes(s.id));
-    if (selectedSeries.length === 0) return;
-
-    const targetLocales = (await supabase.from("site_config").select("value").eq("key", "db_translation_ai").maybeSingle()).data?.value?.target_locales ?? ["en"];
-
-    setBatchTranslating(true);
-    batchAbortRef.current = false;
-    setTransProgress({
-      open: true,
-      entityType: "series",
-      entityName: `批量翻译 ${selectedSeries.length} 个车系`,
-      jmId: 0,
-      logs: [],
-      errors: [],
-      done: 0,
-      total: selectedSeries.length,
-    });
-
-    let allLogs: TranslationProgress["logs"] = [];
-    let allErrors: TranslationProgress["errors"] = [];
-    let completed = 0;
-
-    for (const series of selectedSeries) {
-      if (batchAbortRef.current) break;
-      setTransProgress(prev => ({
-        ...prev,
-        entityName: `车系 ${completed + 1}/${selectedSeries.length}: ${series.name}`,
-        done: completed,
-        logs: allLogs.slice(-50),
-        errors: allErrors,
-      }));
-      try {
-        const { data, error } = await supabase.functions.invoke("db-translate", {
-          body: { action: "translate_single", entityType: "series", jmId: String(series.jm_id) },
-        });
-        if (error) {
-          allErrors.push({ locale: "-", error: `${series.name}: ${error.message}` });
-        } else if (data?.details?.length) {
-          for (const d of data.details) {
-            if (d.error) allErrors.push({ locale: d.locale, error: `${series.name}: ${d.error}` });
-            else allLogs.push({ locale: d.locale, key: d.key, source: d.source, translated: d.translated });
-          }
-        }
-      } catch (e: any) {
-        allErrors.push({ locale: "-", error: `${series.name}: ${e?.message || "失败"}` });
-      }
-      completed++;
-    }
-
-    setTransProgress(prev => ({
-      ...prev,
-      entityName: batchAbortRef.current ? `已中断 · 完成 ${completed}/${selectedSeries.length}` : `完成 ${completed} 个车系`,
-      done: completed,
-      logs: allLogs.slice(-50),
-      errors: allErrors,
-    }));
-    setBatchTranslating(false);
-    clearEntityTranslationCache();
-    await loadDbSeries();
-  }
-
-  function stopBatchTranslate() {
-    batchAbortRef.current = true;
-  }
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Entity translation
+  const { translating: transSeries, progress: transProgress, error: transError, setError: setTransError, translateEntities } = useEntityTranslation("series");
+  const [transTargetLocales, setTransTargetLocales] = useState<string[]>([...TARGET_LOCALES]);
+  const [showTransLocales, setShowTransLocales] = useState(false);
+
+  function toggleTransLocale(loc: string) {
+    setTransTargetLocales((prev) =>
+      prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc]
+    );
+  }
 
   // 批量选择控制
   const handleSelectAll = () => {
@@ -1077,6 +971,57 @@ export default function AdminSeries() {
             </button>
           </div>
 
+          {/* 翻译按钮组 */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowTransLocales(!showTransLocales)}
+                className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+              >
+                目标语言 ({transTargetLocales.length}/7)
+                <span className="text-xs text-zinc-400">▼</span>
+              </button>
+              {showTransLocales && (
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white rounded-xl border border-zinc-200 shadow-lg p-3 w-52">
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-100">
+                    <button type="button" onClick={() => setTransTargetLocales([...TARGET_LOCALES])} className="text-xs text-blue-600 hover:text-blue-800">全选</button>
+                    <button type="button" onClick={() => setTransTargetLocales([])} className="text-xs text-zinc-400 hover:text-zinc-600">清除</button>
+                  </div>
+                  {TARGET_LOCALES.map((loc) => (
+                    <label key={loc} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-zinc-50 px-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={transTargetLocales.includes(loc)}
+                        onChange={() => toggleTransLocale(loc)}
+                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-zinc-700">{LOCALE_LABELS[loc as keyof typeof LOCALE_LABELS] || loc}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={transSeries || transTargetLocales.length === 0}
+              onClick={async () => {
+                const ids = viewSeries.map(s => s.jm_id).filter(id => id > 0);
+                await translateEntities(transTargetLocales, ids.length > 0 ? ids : undefined);
+                await loadDbSeries();
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {transSeries ? "翻译中..." : "翻译车系"}
+            </button>
+            {transProgress && (
+              <span className="text-sm text-zinc-600">{transProgress}</span>
+            )}
+            {transError && (
+              <span className="text-sm text-red-600">{transError}</span>
+            )}
+          </div>
+
           <StagedCrudToolbar
             title="本地暂存"
             stagedItems={stagedItems.filter(it => it.tableName === 'series')}
@@ -1102,69 +1047,6 @@ export default function AdminSeries() {
             }}
             loading={dbSeriesLoading}
           />
-
-          {/* 翻译按钮组 */}
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              type="button"
-              disabled={batchTranslating}
-              onClick={async () => {
-                const allSeries = viewSeries.filter(s => s.jm_id > 0);
-                if (allSeries.length === 0) return;
-                setBatchTranslating(true);
-                batchAbortRef.current = false;
-                setTransProgress({ open: true, entityType: "series", entityName: `批量翻译 ${allSeries.length} 个车系`, jmId: 0, logs: [], errors: [], done: 0, total: allSeries.length });
-                let allLogs: TranslationProgress["logs"] = [];
-                let allErrors: TranslationProgress["errors"] = [];
-                let completed = 0;
-                const CONCURRENCY = 100;
-                const queue = [...allSeries];
-
-                async function worker() {
-                  while (queue.length > 0) {
-                    if (batchAbortRef.current) return;
-                    const series = queue.shift()!;
-                    try {
-                      const { data, error } = await supabase.functions.invoke("db-translate", { body: { action: "translate_single", entityType: "series", jmId: String(series.jm_id) } });
-                      if (error) allErrors.push({ locale: "-", error: `${series.name}: ${error.message}` });
-                      else if (data?.details?.length) {
-                        for (const d of data.details) {
-                          if (d.error) allErrors.push({ locale: d.locale, error: `${series.name}: ${d.error}` });
-                          else allLogs.push({ locale: d.locale, key: d.key, source: d.source, translated: d.translated });
-                        }
-                      }
-                    } catch (e: any) { allErrors.push({ locale: "-", error: `${series.name}: ${e?.message || "失败"}` }); }
-                    completed++;
-                    setTransProgress(prev => ({ ...prev, entityName: `车系 ${completed}/${allSeries.length}`, done: completed, logs: allLogs.slice(-100), errors: allErrors }));
-                  }
-                }
-
-                await Promise.all(Array.from({ length: Math.min(CONCURRENCY, allSeries.length) }, () => worker()));
-                setTransProgress(prev => ({ ...prev, entityName: batchAbortRef.current ? `已中断 · 完成 ${completed}/${allSeries.length}` : `完成 ${completed} 个车系`, done: completed, logs: allLogs.slice(-100), errors: allErrors }));
-                setBatchTranslating(false);
-                clearEntityTranslationCache();
-                await loadDbSeries();
-              }}
-              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {batchTranslating ? "翻译中..." : `一键翻译全部车系（${viewSeries.filter(s => s.jm_id > 0).length}）`}
-            </button>
-            {batchTranslating ? (
-              <button type="button" onClick={() => { batchAbortRef.current = true; }} className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-200 transition-colors">
-                停止
-              </button>
-            ) : null}
-            {selectedIds.length > 0 ? (
-              <button
-                type="button"
-                disabled={batchTranslating}
-                onClick={() => void batchTranslate()}
-                className="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors"
-              >
-                翻译已选（{selectedIds.length}）
-              </button>
-            ) : null}
-          </div>
 
           <BulkEditBar
             tableName="series"
@@ -1358,14 +1240,6 @@ export default function AdminSeries() {
                       <td className="whitespace-nowrap px-4 py-3">
                         <button
                           type="button"
-                          onClick={() => translateSingle(series.jm_id, series.name)}
-                          disabled={translatingId === series.jm_id}
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 disabled:text-blue-300 mr-3"
-                        >
-                          {translatingId === series.jm_id ? "翻译中..." : "翻译"}
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => toggleDeleteRow(series.id)}
                           className={`text-sm font-semibold ${deleted ? 'text-zinc-600 hover:text-zinc-900' : 'text-red-600 hover:text-red-800'}`}
                         >
@@ -1447,98 +1321,6 @@ export default function AdminSeries() {
           {error}
         </div>
       )}
-
-      {/* Translation Progress Modal */}
-      {transProgress.open ? (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4" onClick={() => { if (translatingId) return; setTransProgress(prev => ({ ...prev, open: false })); }}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-5 border-b border-zinc-200">
-              <div>
-                <h3 className="text-lg font-bold text-zinc-900">翻译进度</h3>
-                <p className="text-sm text-zinc-500 mt-0.5">
-                  {transProgress.entityType === "brand" ? "品牌" : transProgress.entityType === "series" ? "车系" : transProgress.entityType === "model_detail" ? "车型" : transProgress.entityType}
-                  {" · "}{transProgress.entityName}
-                  {translatingId ? (
-                    <span className="ml-2 inline-flex items-center gap-1 text-blue-600">
-                      <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                      翻译中...
-                    </span>
-                  ) : (
-                    <span className="ml-2 text-green-600">已完成</span>
-                  )}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setTransProgress(prev => ({ ...prev, open: false }))}
-                className="text-zinc-400 hover:text-zinc-600 text-2xl leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-5">
-              <div className="mb-4">
-                <div className="flex items-center justify-between text-sm text-zinc-600 mb-1">
-                  <span>{transProgress.done} / {transProgress.total} 个语言</span>
-                </div>
-                <div className="w-full bg-zinc-200 rounded-full h-2 overflow-hidden">
-                  <div
-                    className={`h-2 rounded-full transition-all duration-300 ${translatingId ? "bg-blue-500 animate-pulse" : "bg-green-500"}`}
-                    style={{ width: `${transProgress.total > 0 ? Math.round((transProgress.done / transProgress.total) * 100) : 0}%` }}
-                  />
-                </div>
-              </div>
-
-              {transProgress.logs.length > 0 ? (
-                <div className="mb-3">
-                  <div className="text-xs font-semibold text-zinc-500 uppercase mb-2">翻译详情</div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 max-h-48 overflow-y-auto space-y-2">
-                    {transProgress.logs.map((l, i) => (
-                      <div key={i} className="text-xs bg-white rounded-lg border border-zinc-100 p-2">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 text-[10px] font-semibold">{LOCALE_LABELS[l.locale as Locale] || l.locale}</span>
-                          <span className="text-zinc-400 font-mono">{l.key}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-zinc-500 truncate max-w-[45%]">{l.source}</span>
-                          <span className="text-zinc-300">→</span>
-                          <span className="text-green-700 font-medium truncate max-w-[45%]">{l.translated}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {transProgress.errors.length > 0 ? (
-                <div>
-                  <div className="text-xs font-semibold text-red-500 uppercase mb-2">错误</div>
-                  <div className="space-y-1">
-                    {transProgress.errors.map((e, i) => (
-                      <div key={i} className="text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
-                        [{LOCALE_LABELS[e.locale as Locale] || e.locale}] {e.error}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {transProgress.logs.length === 0 && transProgress.errors.length === 0 && translatingId ? (
-                <div className="text-center text-sm text-zinc-400 py-8">正在调用 AI 翻译接口...</div>
-              ) : null}
-            </div>
-            <div className="p-4 border-t border-zinc-200 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setTransProgress(prev => ({ ...prev, open: false }))}
-                className="px-5 py-2 bg-zinc-100 text-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-200 transition-colors"
-              >
-                {translatingId ? "后台运行" : "关闭"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

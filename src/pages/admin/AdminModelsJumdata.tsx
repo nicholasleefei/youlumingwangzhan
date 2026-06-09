@@ -8,6 +8,8 @@ import type { StagedItem } from "@/utils/stagedCrud";
 import { confirmJumdataQueryIfExists } from "@/utils/jumdataQueryGuard";
 import BatchImportPlanModal, { type BatchImportPlanItem } from "@/components/admin/BatchImportPlanModal";
 import { proxiedImageUrl } from "@/utils/proxyUrl";
+import { useEntityTranslation, TARGET_LOCALES } from "@/utils/useEntityTranslation";
+import { LOCALE_LABELS } from "@/i18n/locales";
 
 type DbBrand = {
   id: string;
@@ -152,6 +154,17 @@ export default function AdminModelsJumdata() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [commitBusy, setCommitBusy] = useState(false);
+
+  // Entity translation
+  const { translating: transModels, progress: transProgress, error: transError, setError: setTransError, translateEntities } = useEntityTranslation("model");
+  const [transTargetLocales, setTransTargetLocales] = useState<string[]>([...TARGET_LOCALES]);
+  const [showTransLocales, setShowTransLocales] = useState(false);
+
+  function toggleTransLocale(loc: string) {
+    setTransTargetLocales((prev) =>
+      prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc]
+    );
+  }
 
   useEffect(() => {
     localStorage.setItem('admin_models_only_normal_series', onlyNormalSeries ? '1' : '0');
@@ -431,7 +444,7 @@ export default function AdminModelsJumdata() {
         .order('name', { ascending: true });
 
       const { data, error } = nextOnlyNormal ? await q.eq('activity_status', 0) : await q;
-      
+
       if (error) throw error;
       setDbBrands(data || []);
     } catch (e) {
@@ -459,7 +472,7 @@ export default function AdminModelsJumdata() {
       }
 
       const { data, error } = await query.order('name', { ascending: true });
-      
+
       if (error) throw error;
       setDbSeries(data || []);
     } catch (e) {
@@ -1548,6 +1561,57 @@ export default function AdminModelsJumdata() {
             >
               {dbModelsLoading ? '加载中...' : '刷新'}
             </button>
+          </div>
+
+          {/* 翻译按钮组 */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowTransLocales(!showTransLocales)}
+                className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+              >
+                目标语言 ({transTargetLocales.length}/7)
+                <span className="text-xs text-zinc-400">▼</span>
+              </button>
+              {showTransLocales && (
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white rounded-xl border border-zinc-200 shadow-lg p-3 w-52">
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-100">
+                    <button type="button" onClick={() => setTransTargetLocales([...TARGET_LOCALES])} className="text-xs text-blue-600 hover:text-blue-800">全选</button>
+                    <button type="button" onClick={() => setTransTargetLocales([])} className="text-xs text-zinc-400 hover:text-zinc-600">清除</button>
+                  </div>
+                  {TARGET_LOCALES.map((loc) => (
+                    <label key={loc} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-zinc-50 px-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={transTargetLocales.includes(loc)}
+                        onChange={() => toggleTransLocale(loc)}
+                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-zinc-700">{LOCALE_LABELS[loc as keyof typeof LOCALE_LABELS] || loc}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={transModels || transTargetLocales.length === 0}
+              onClick={async () => {
+                const ids = viewModels.map(m => m.jm_id).filter(id => id > 0);
+                await translateEntities(transTargetLocales, ids.length > 0 ? ids : undefined);
+                await loadDbModels();
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {transModels ? "翻译中..." : "翻译车型"}
+            </button>
+            {transProgress && (
+              <span className="text-sm text-zinc-600">{transProgress}</span>
+            )}
+            {transError && (
+              <span className="text-sm text-red-600">{transError}</span>
+            )}
           </div>
 
           <StagedCrudToolbar

@@ -20,8 +20,6 @@ type ClearOptions = {
   carPictures: boolean;
   modelImageConfig: boolean;
   seriesVrConfig: boolean;
-  entityTranslations: boolean;
-  translationJobs: boolean;
   brands: boolean;
 };
 
@@ -32,8 +30,6 @@ const defaultClearOptions: ClearOptions = {
   carPictures: true,
   modelImageConfig: true,
   seriesVrConfig: true,
-  entityTranslations: true,
-  translationJobs: true,
   brands: true,
 };
 
@@ -159,15 +155,7 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
         if (opts.series) {
           await supabase.from("series").delete().eq("brand_jm_id", bjm);
         }
-        // 9. delete entity_translations for brand
-        if (opts.entityTranslations) {
-          await supabase.from("entity_translations").delete().eq("entity_type", "brand").eq("jm_id", String(bjm));
-        }
-        // 10. delete entity_translation_jobs for brand
-        if (opts.translationJobs) {
-          await supabase.from("entity_translation_jobs").delete().eq("entity_type", "brand").eq("jm_id", String(bjm));
-        }
-        // 11. delete the brand itself
+        // 9. delete the brand itself
         if (opts.brands) {
           await supabase.from("brands").delete().eq("jm_id", bjm);
         }
@@ -665,8 +653,6 @@ export default function AdminMaterialOverview(props: { onGoToResources?: (jump: 
                 { key: "carPictures", label: "车辆图片 (car_pictures)" },
                 { key: "modelImageConfig", label: "图片配置 (model_image_config)" },
                 { key: "seriesVrConfig", label: "VR配置 (series_vr_config)" },
-                { key: "entityTranslations", label: "翻译数据 (entity_translations)" },
-                { key: "translationJobs", label: "翻译任务 (entity_translation_jobs)" },
               ].map(({ key, label }) => {
                 const checked = (deleteAction as any).clearOptions?.[key] ?? true;
                 return (

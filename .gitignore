@@ -80,3 +80,4 @@ database-tool.py
 find_missing_fields.py
 
 .vercel
+scripts/.env.example

@@ -1,44 +1,22 @@
 export type Locale =
   | "zh-CN"
   | "en"
-  | "ru"
   | "ar"
+  | "ru"
   | "th"
-  | "lo"
-  | "fa"
-  | "tr"
-  | "ckb"
-  | "uz"
-  | "kk"
-  | "ky"
-  | "tg"
-  | "tk"
-  | "ps"
   | "ur"
-  | "he"
-  | "hy"
-  | "ka";
+  | "tr"
+  | "pt-BR";
 
 export const SUPPORTED_LOCALES: readonly Locale[] = [
   "zh-CN",
   "en",
-  "ru",
   "ar",
+  "ru",
   "th",
-  "lo",
-  "fa",
-  "tr",
-  "ckb",
-  "uz",
-  "kk",
-  "ky",
-  "tg",
-  "tk",
-  "ps",
   "ur",
-  "he",
-  "hy",
-  "ka",
+  "tr",
+  "pt-BR",
 ];
 
 export const DEFAULT_LOCALE: Locale = "en";
@@ -46,26 +24,15 @@ export const DEFAULT_LOCALE: Locale = "en";
 export const LOCALE_LABELS: Record<Locale, string> = {
   "zh-CN": "中文",
   en: "English",
-  ru: "Русский",
   ar: "العربية",
+  ru: "Русский",
   th: "ไทย",
-  lo: "ລາວ",
-  fa: "فارسی",
-  tr: "Türkçe",
-  ckb: "کوردی",
-  uz: "Oʻzbekcha",
-  kk: "Қазақша",
-  ky: "Кыргызча",
-  tg: "Тоҷикӣ",
-  tk: "Türkmençe",
-  ps: "پښتو",
   ur: "اردو",
-  he: "עברית",
-  hy: "Հայերեն",
-  ka: "ქართული",
+  tr: "Türkçe",
+  "pt-BR": "Português (Brasil)",
 };
 
-const RTL_LOCALES = new Set<Locale>(["ar", "fa", "ps", "ur", "he", "ckb"]);
+const RTL_LOCALES = new Set<Locale>(["ar", "ur"]);
 
 export function isRtlLocale(locale: Locale) {
   return RTL_LOCALES.has(locale);
@@ -77,22 +44,11 @@ const LOCALE_MAPPINGS = new Map<string, Locale>([
   ['ru', 'ru'],
   ['ar', 'ar'],
   ['th', 'th'],
-  ['lo', 'lo'],
-  ['fa', 'fa'],
-  ['tr', 'tr'],
-  ['ckb', 'ckb'],
-  ['ku', 'ckb'],
-  ['uz', 'uz'],
-  ['kk', 'kk'],
-  ['ky', 'ky'],
-  ['tg', 'tg'],
-  ['tk', 'tk'],
-  ['ps', 'ps'],
   ['ur', 'ur'],
-  ['he', 'he'],
-  ['iw', 'he'],
-  ['hy', 'hy'],
-  ['ka', 'ka'],
+  ['tr', 'tr'],
+  ['pt', 'pt-BR'],
+  ['pt-BR', 'pt-BR'],
+  ['br', 'pt-BR'],
 ]);
 
 export function normalizeLocale(input: string | null | undefined): Locale | null {
@@ -117,4 +73,3 @@ export function detectDefaultLocale(): Locale {
   const navLang = typeof navigator !== "undefined" ? navigator.language : null;
   return normalizeLocale(navLang) ?? DEFAULT_LOCALE;
 }
-

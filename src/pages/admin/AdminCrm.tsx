@@ -10,7 +10,7 @@ type AdminUser = {
   is_approved: boolean;
 };
 
-type CrmTab = "customers" | "pipeline" | "tasks" | "files" | "import" | "legacy";
+type CrmTab = "customers" | "pipeline" | "tasks" | "import" | "legacy";
 
 type CustomerStatus = "new" | "contacted" | "qualified" | "quoted" | "negotiating" | "won" | "lost";
 type OpportunityStage = "lead" | "qualified" | "quoted" | "negotiating" | "won" | "lost";
@@ -252,7 +252,6 @@ export default function AdminCrm() {
     if (tab === "customers") loadCustomers();
     if (tab === "pipeline") loadPipeline();
     if (tab === "tasks") loadTasks();
-    if (tab === "files") loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -291,9 +290,6 @@ export default function AdminCrm() {
             <button type="button" onClick={() => setTab("tasks")} className={subTabCls(tab === "tasks")}>
               任务/日程
             </button>
-            <button type="button" onClick={() => setTab("files")} className={subTabCls(tab === "files")}>
-              附件
-            </button>
             <button type="button" onClick={() => setTab("import")} className={subTabCls(tab === "import")}>
               导入/迁移
             </button>
@@ -316,7 +312,6 @@ export default function AdminCrm() {
                 if (tab === "customers") loadCustomers();
                 if (tab === "pipeline") loadPipeline();
                 if (tab === "tasks") loadTasks();
-                if (tab === "files") loadCustomers();
               }}
             >
               刷新
@@ -453,19 +448,6 @@ export default function AdminCrm() {
               </div>
             );
           })}
-        </div>
-      ) : null}
-
-      {tab === "files" ? (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">附件入口</div>
-            <div className="mt-2 text-sm text-zinc-600">附件绑定在客户的时间线里。请到“客户”里打开某个客户，在详情中上传附件。</div>
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">快速定位</div>
-            <div className="mt-2 text-sm text-zinc-600">你可以用搜索框按邮箱/公司名定位客户，再进入详情查看附件。</div>
-          </div>
         </div>
       ) : null}
 
@@ -1151,7 +1133,7 @@ function ImportPanel(props: { adminId: string | null; onImported: () => void }) 
           <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-6 py-4">
             <div className="min-w-0">
               <div className="truncate text-lg font-bold text-zinc-900">导入询盘到 CRM</div>
-              <div className="mt-0.5 truncate text-sm text-zinc-500">会创建客户、商机、并写入一条“询盘原文”时间线。</div>
+              <div className="mt-0.5 truncate text-sm text-zinc-500">会创建客户、商机、并写入一条"询盘原文"时间线。</div>
             </div>
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => setOpen(false)} disabled={busy} className={secondaryButtonCls()}>
