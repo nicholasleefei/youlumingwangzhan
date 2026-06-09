@@ -501,7 +501,7 @@ export default function SeriesDetail() {
     for (const m of compareModels) {
       const originalRaw = modelRawMap[m.id];
       const tr = modelTr.get(String(m.jm_id ?? ""));
-      const mergedRaw = mergeRawTranslations(originalRaw, tr?.raw as Record<string, unknown> | undefined);
+      const mergedRaw = mergeRawTranslations(originalRaw, tr?.raw as any);
       out[m.id] = extractJumeiParamRows(mergedRaw ?? originalRaw);
     }
     return out;

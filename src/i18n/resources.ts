@@ -6,7 +6,6 @@ import ru from "./messages/ru.json";
 import ar from "./messages/ar.json";
 import th from "./messages/th.json";
 import tr from "./messages/tr.json";
-import kk from "./messages/kk.json";
 import ur from "./messages/ur.json";
 import ptBR from "./messages/pt-BR.json";
 
@@ -20,7 +19,6 @@ export const resources: Record<Locale, { common: CommonDict }> = {
   ar: { common: ar as CommonDict },
   th: { common: th as CommonDict },
   tr: { common: tr as CommonDict },
-  kk: { common: kk as CommonDict },
   ur: { common: ur as CommonDict },
   "pt-BR": { common: ptBR as CommonDict },
 };

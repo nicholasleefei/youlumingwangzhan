@@ -283,7 +283,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
   const translatedDetails = useMemo(() => {
     if (!details) return null;
     const tr = modelTr.get(String(model?.jm_id ?? ""));
-    const mergedRaw = mergeRawTranslations(details.raw, tr?.raw as Record<string, unknown> | undefined);
+    const mergedRaw = mergeRawTranslations(details.raw as Record<string, unknown> | null | undefined, tr?.raw as any);
     if (mergedRaw === details.raw) return details;
     return { ...details, raw: mergedRaw };
   }, [details, modelTr, model?.jm_id]);

@@ -31,6 +31,7 @@ export type EntityTranslationData = {
   parentname?: string;
   environmentalstandards?: string;
   drivemode?: string;
+  raw?: Record<string, unknown>;
   raw_translated?: Record<string, string>;
   source_data?: Record<string, string>;
 };
@@ -350,19 +351,19 @@ export function applyModelDetailTranslations(
 // 合并 raw 翻译
 export function mergeRawTranslations(
   originalRaw: Record<string, unknown> | null | undefined,
-  translatedRaw: Record<string, string> | undefined,
+  translatedRaw: Record<string, unknown> | undefined,
 ): Record<string, unknown> | null {
   if (!originalRaw) return null;
   if (!translatedRaw || Object.keys(translatedRaw).length === 0) return originalRaw;
 
   const merged = { ...originalRaw };
-  const deepMerge = (target: Record<string, unknown>, source: Record<string, string>) => {
+  const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(source)) {
       if (typeof value === "object" && value !== null && !Array.isArray(value)) {
         const targetValue = target[key];
         if (typeof targetValue === "object" && targetValue !== null && !Array.isArray(targetValue)) {
           const next = { ...(targetValue as Record<string, unknown>) };
-          deepMerge(next, value as Record<string, string>);
+          deepMerge(next, value as Record<string, unknown>);
           target[key] = next;
         } else {
           target[key] = { ...(value as Record<string, unknown>) };
