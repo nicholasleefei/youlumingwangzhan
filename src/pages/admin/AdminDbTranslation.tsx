@@ -149,20 +149,20 @@ export default function AdminDbTranslation() {
   const [dbLoading, setDbLoading] = useState(false);
   const [translatingEntities, setTranslatingEntities] = useState(false);
 
-  // 四个实体类型的独立翻译 hooks
-  const { translating: transBrand, progress: transBrandProgress, translateEntities: transBrandFn } = useEntityTranslation("brand");
-  const { translating: transSeries, progress: transSeriesProgress, translateEntities: transSeriesFn } = useEntityTranslation("series");
-  const { translating: transModel, progress: transModelProgress, translateEntities: transModelFn } = useEntityTranslation("model");
-  const { translating: transDetail, progress: transDetailProgress, translateEntities: transDetailFn } = useEntityTranslation("model_detail");
+  // 四个实体类型的独立翻译 hooks，注入日志回调
+  const { translating: transBrand, progress: transBrandProgress, translateEntities: transBrandFn } = useEntityTranslation("brand", { onLog: addDebugLog, onImportant: addDebugLogImportant });
+  const { translating: transSeries, progress: transSeriesProgress, translateEntities: transSeriesFn } = useEntityTranslation("series", { onLog: addDebugLog, onImportant: addDebugLogImportant });
+  const { translating: transModel, progress: transModelProgress, translateEntities: transModelFn } = useEntityTranslation("model", { onLog: addDebugLog, onImportant: addDebugLogImportant });
+  const { translating: transDetail, progress: transDetailProgress, translateEntities: transDetailFn } = useEntityTranslation("model_detail", { onLog: addDebugLog, onImportant: addDebugLogImportant });
 
   // 每个实体类型的翻译按钮处理函数
   async function handleTranslateEntity(entityType: string, fn: (locales: string[], jmIds?: (string | number)[]) => Promise<AggregateResult | null>) {
     const label = entityType === "brand" ? "品牌" : entityType === "series" ? "车系" : entityType === "model" ? "车型" : "车型详情";
     const emoji = entityType === "brand" ? "🏭" : entityType === "series" ? "🚗" : entityType === "model" ? "🔧" : "📋";
     setDebugLogs([]);
-    addDebugLog(`${emoji} 开始翻译【${label}】→ 目标语言：${TARGET_LOCALES.map(l => LOCALE_LABELS[l as keyof typeof LOCALE_LABELS] || l).join("、")}`);
-    addDebugLog(`⏳ 正在调用翻译引擎（火山引擎）...`);
-    addDebugLog(`📊 源实体总数：活动状态正常的${label}数据`);
+    addDebugLogImportant(`${emoji} 🚀 启动翻译【${label}】`);
+    addDebugLog(`📋 目标语言：${TARGET_LOCALES.map(l => LOCALE_LABELS[l as keyof typeof LOCALE_LABELS] || l).join("、")}`);
+    addDebugLog(`⏳ 翻译引擎：火山引擎 (Volcengine)`);
     const startTime = Date.now();
 
     // Fixed: pass individual locale strings from TARGET_LOCALES (readonly array), not the readonly tuple
@@ -170,33 +170,22 @@ export default function AdminDbTranslation() {
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     if (result) {
-      addDebugLog(`✅ 【${label}】翻译完成！`);
-      addDebugLog(`📊 源实体数：${result.totalEntities} · 处理条目：${result.totalProcessed} · 耗时：${elapsed}s`);
-      // Log per-locale breakdown
+      addDebugLogImportant(`✅ 【${label}】全部翻译完成！总耗时: ${elapsed}s`);
+      addDebugLog(`📊 源实体: ${result.totalEntities} · 处理条目: ${result.totalProcessed} · 覆盖语言: ${Object.keys(result.locales || {}).length}`);
+      addDebugLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      // Per-locale stats
       for (const [loc, st] of Object.entries(result.locales || {})) {
         const locLabel = LOCALE_LABELS[loc as keyof typeof LOCALE_LABELS] || loc;
         if (st.errors.length > 0) {
-          addDebugLog(`  [${locLabel}] ${st.processed} 条 ⚠️ ${st.errors.length} 错误`);
+          addDebugLog(`  ${locLabel.padEnd(20)} ${String(st.processed).padStart(4)} 条  ⚠️ ${st.errors.length} 错误`);
         } else {
-          addDebugLog(`  [${locLabel}] ${st.processed} 条 ✓`);
+          addDebugLog(`  ${locLabel.padEnd(20)} ${String(st.processed).padStart(4)} 条  ✅`);
         }
       }
-      // Show samples from the first locale that has them
-      if (result.samples?.length) {
-        const sampleSize = Math.min(5, result.samples.length);
-        addDebugLog(`📝 翻译样例（前${sampleSize}条）：`);
-        for (let i = 0; i < sampleSize; i++) {
-          const d = result.samples[i];
-          if (d.fields?.length) {
-            for (const f of d.fields.slice(0, 3)) {
-              addDebugLog(`  [${d.locale}] ${f.field}: "${f.source}" → "${f.translated}"`);
-            }
-          }
-        }
-      }
+      addDebugLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       await fetchDbTranslationStats();
     } else {
-      addDebugLog(`❌ 【${label}】翻译失败，请检查引擎配置和网络连接`);
+      addDebugLogImportant(`❌ 【${label}】翻译失败，请检查引擎配置和网络连接`);
     }
   }
 
@@ -412,7 +401,13 @@ export default function AdminDbTranslation() {
     const timestamp = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const log = `[${timestamp}] ${message}`;
     console.log(log);
-    setDebugLogs(prev => [...prev.slice(-20), log]); // 保留最近20条
+    setDebugLogs(prev => [...prev.slice(-200), log]); // 保留最近200条
+  }
+  function addDebugLogImportant(message: string) {
+    const timestamp = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const log = `[${timestamp}] 🔥 ${message}`;
+    console.log(log);
+    setDebugLogs(prev => [...prev.slice(-200), log]);
   }
 
   async function fetchDbTranslationStats() {
