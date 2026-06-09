@@ -295,18 +295,29 @@ Deno.serve(async (req) => {
         return json({ ok: true, entity_type: entityType, target_locale: targetLocale, processed: 0, message: "没有需要翻译的实体" });
       }
 
-      // TRUNCATE source rows early to avoid building items for everything
+      // TRUNCATE source rows early — no artificial limit, translate all
       const MAX_SOURCE_ENTITIES = body.limit_entities
-        ? Math.min(Number(body.limit_entities), 300)
-        : 300;
+        ? Math.min(Number(body.limit_entities), 10000)
+        : 10000;
       if (sourceRows.length > MAX_SOURCE_ENTITIES) {
         sourceRows = sourceRows.slice(0, MAX_SOURCE_ENTITIES);
       }
 
       // Build items with text fields
+      // IMPORTANT: Check which entities already have translations for this locale
+      const transTable = getTable(entityType, targetLocale);
+      const { data: existingTrans } = await client.from(transTable).select("jm_id");
+      const existingIds = new Set((existingTrans || []).map((r: any) => Number(r.jm_id)));
+
       const items: { row: any; jmId: string; fields: [string, string][] }[] = [];
+      let skippedCount = 0;
       for (const row of sourceRows) {
-        const jmId = String(row.jm_id);
+        const jmId = Number(row.jm_id);
+        // Skip entities that already have a translation row
+        if (existingIds.has(jmId)) {
+          skippedCount++;
+          continue;
+        }
         const fields: [string, string][] = [];
         for (const f of textFields) {
           const val = row[f];
@@ -314,7 +325,19 @@ Deno.serve(async (req) => {
             fields.push([f, String(val)]);
           }
         }
-        if (fields.length > 0) items.push({ row, jmId, fields });
+        if (fields.length > 0) items.push({ row, jmId: String(jmId), fields });
+      }
+
+      if (items.length === 0) {
+        return json({
+          ok: true,
+          entity_type: entityType,
+          target_locale: targetLocale,
+          total_entities: sourceRows.length,
+          processed: 0,
+          skipped: skippedCount,
+          message: `所有 ${sourceRows.length} 个实体已有翻译，跳过 ${skippedCount} 个`,
+        });
       }
 
       // Adaptive batch sizing: fewer entities per call for heavy-field types
@@ -392,6 +415,7 @@ Deno.serve(async (req) => {
         target_locale: targetLocale,
         total_entities: sourceRows.length,
         processed: totalProcessed,
+        skipped: skippedCount,
         details: sampleDetails,
         errors: allErrors.slice(0, 10),
       });
