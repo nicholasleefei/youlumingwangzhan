@@ -137,6 +137,42 @@ async function loadConfig(client: any) {
   };
 }
 
+// ============ Raw JSON text extraction ============
+// Flatten nested raw JSON into path->text pairs for translation
+function extractRawTexts(
+  obj: Record<string, unknown>,
+  prefix: string,
+  maxLength: number,
+): [string, string][] {
+  const result: [string, string][] = [];
+  for (const [key, val] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (typeof val === "string" && val.trim().length > 0 && val.trim().length <= maxLength) {
+      // Skip fields that are clearly codes/IDs/numbers-only
+      if (/^[0-9a-fA-F-]+$/.test(val.trim())) continue;
+      if (/^#[0-9a-fA-F,|]+$/.test(val.trim())) continue; // color hex values
+      result.push([path, val.trim()]);
+    } else if (typeof val === "object" && val !== null && !Array.isArray(val)) {
+      result.push(...extractRawTexts(val as Record<string, unknown>, path, maxLength));
+    }
+  }
+  return result;
+}
+
+// Set a nested field by dot-separated path
+function setNestedField(obj: any, path: string, value: string) {
+  const parts = path.split(".");
+  let current = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    if (!current[key] || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  current[parts[parts.length - 1]] = value;
+}
+
 // ============ Main ============
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -313,11 +349,7 @@ Deno.serve(async (req) => {
       let skippedCount = 0;
       for (const row of sourceRows) {
         const jmId = Number(row.jm_id);
-        // Skip entities that already have a translation row
-        if (existingIds.has(jmId)) {
-          skippedCount++;
-          continue;
-        }
+        if (existingIds.has(jmId)) { skippedCount++; continue; }
         const fields: [string, string][] = [];
         for (const f of textFields) {
           const val = row[f];
@@ -325,8 +357,37 @@ Deno.serve(async (req) => {
             fields.push([f, String(val)]);
           }
         }
+        // Raw JSON extraction for model_detail
+        if (entityType === "model_detail" && row.raw) {
+          let rawObj: Record<string, unknown> | null = null;
+          if (typeof row.raw === "object" && row.raw !== null && !Array.isArray(row.raw)) {
+            rawObj = row.raw as Record<string, unknown>;
+          } else if (typeof row.raw === "string") {
+            try { rawObj = JSON.parse(row.raw); } catch { /* ignore */ }
+          }
+          if (rawObj) {
+            const flatTexts = extractRawTexts(rawObj, "", 200);
+            // Cap raw texts per entity to avoid oversized API calls
+            const capped = flatTexts.slice(0, 30);
+            for (const [path, val] of capped) fields.push([path, val]);
+          }
+        }
         if (fields.length > 0) items.push({ row, jmId: String(jmId), fields });
       }
+
+      const firstUnskipped = items.length > 0
+        ? { jm_id: items[0].jmId, fieldsCount: items[0].fields.length, firstFields: items[0].fields.slice(0, 5).map(function(kv: [string,string]) { return kv[0]; }) }
+        : (function() {
+            const r = sourceRows.find(function(sr: any) { return !existingIds.has(Number(sr.jm_id)); });
+            if (r) {
+              const fieldDump = textFields.map(function(f: string) {
+                const v = r[f];
+                return f + "=" + (v !== null && v !== undefined ? String(v).substring(0, 20) : "NULL");
+              }).join(";");
+              return { jm_id: r.jm_id, reason: "no fields extracted", textFieldValues: fieldDump };
+            }
+            return { reason: "no unskipped entities" };
+          })();
 
       if (items.length === 0) {
         return json({
@@ -342,9 +403,9 @@ Deno.serve(async (req) => {
 
       // Adaptive batch sizing: fewer entities per call for heavy-field types
       const avgFieldsPerEntity = items.reduce((s, it) => s + it.fields.length, 0) / Math.max(1, items.length);
-      // Volcengine can handle ~100 texts per call. Target <8s per call.
-      const MAX_TEXTS = avgFieldsPerEntity > 8 ? 100 : 80;
-      const MAX_ENTITIES_PER_BATCH = avgFieldsPerEntity > 8 ? 12 : 25;
+      // Volcengine limit: ~50 texts per call for speed, max ~150
+      const MAX_TEXTS = Math.min(100, Math.max(50, avgFieldsPerEntity + 5));
+      const MAX_ENTITIES_PER_BATCH = Math.max(1, Math.floor(MAX_TEXTS / Math.max(1, avgFieldsPerEntity)));
 
       // For large datasets (>300 entities), do the work in chunks to fit within
       // Supabase's 150s edge function timeout. Each chunk is a separate Volcengine call.
@@ -382,7 +443,12 @@ Deno.serve(async (req) => {
               const tr = translated[ti];
               ti++;
               if (tr) {
-                up[fieldName] = tr;
+                // Raw JSON fields always go under 'raw' in the upsert object
+                if (entityType === "model_detail" && !getFields(entityType).includes(fieldName)) {
+                  setNestedField(up, "raw." + fieldName, tr);
+                } else {
+                  up[fieldName] = tr;
+                }
                 hasChanges = true;
               }
             }
@@ -416,6 +482,8 @@ Deno.serve(async (req) => {
         total_entities: sourceRows.length,
         processed: totalProcessed,
         skipped: skippedCount,
+        itemsCount: items.length,
+        debug: firstUnskipped,
         details: sampleDetails,
         errors: allErrors.slice(0, 10),
       });
