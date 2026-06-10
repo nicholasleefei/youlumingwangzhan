@@ -306,18 +306,20 @@ export default function Home() {
           // Apply translations
                     const trBrandName = typeof d.brand_jm_id === "number" ? (brandTr.get(String(d.brand_jm_id))?.name ?? null) : null;
           const trSeriesName = seriesJmId ? (seriesTr.get(String(seriesJmId))?.name ?? seriesTr.get(String(seriesJmId))?.fullname ?? null) : null;
+          const trDetail = typeof d.jm_id === "number" ? modelTr.get(String(d.jm_id)) : null;
+          const translatedSizetype = trDetail?.sizetype || d.sizetype;
 
           return {
           id: String(d.id),
           model_id: modelId,
-          name: typeof d.jm_id === "number" ? (modelTr.get(String(d.jm_id))?.name ?? String(d.name ?? '')) : String(d.name ?? ''),
+          name: trDetail?.name ?? String(d.name ?? ''),
           logo_url: modelLogoUrl,
-          yeartype: d.yeartype ?? null,
-          price: d.price ?? null,
-          sizetype: d.sizetype ?? null,
-          brandname: trBrandName ?? d.brandname ?? null,
-          parentname: trSeriesName ?? d.parentname ?? null,
-          salestate: d.salestate ?? null,
+          yeartype: trDetail?.yeartype ?? d.yeartype ?? null,
+          price: trDetail?.price ?? d.price ?? null,
+          sizetype: translatedSizetype ?? null,
+          brandname: trBrandName ?? trDetail?.brandname ?? d.brandname ?? null,
+          parentname: trSeriesName ?? trDetail?.parentname ?? d.parentname ?? null,
+          salestate: trDetail?.salestate ?? d.salestate ?? null,
           brand_id: d.brand_id ? String(d.brand_id) : null,
           brand_jm_id: typeof d.brand_jm_id === 'number' ? d.brand_jm_id : null,
           series_id: seriesId,

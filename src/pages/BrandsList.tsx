@@ -268,7 +268,7 @@ export default function BrandsList() {
           .in("series_jm_id", seriesJmIds)
           .limit(5000),
         supabase
-          .from("model_details")
+          .from(locale === "zh-CN" ? "model_details" : `model_details_${locale.toLowerCase().replace(/-/g, '_')}`)
           .select("series_jm_id, sizetype, raw, activity_status")
           .in("series_jm_id", seriesJmIds)
           .or("activity_status.is.null,activity_status.eq.0")
