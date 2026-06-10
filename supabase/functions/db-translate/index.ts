@@ -1,5 +1,6 @@
 // Edge Function: db-translate
 // Robust batching, retry with backoff, per-locale bulk translation
+// Raw JSON full translation: every text field in raw is extracted and translated
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
@@ -72,7 +73,6 @@ async function volcengineTranslate(
 
       const txt = await resp.text();
 
-      // Rate limit / server error → retry
       if (resp.status === 429 || resp.status >= 500) {
         const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
         console.warn(`Volcengine ${resp.status} (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms`);
@@ -84,7 +84,6 @@ async function volcengineTranslate(
 
       const j = JSON.parse(txt);
       if (j.ResponseMetadata?.Error) {
-        // Some Volcengine errors are retryable
         const code = j.ResponseMetadata.Error.Code;
         if ((code === "RequestThrottled" || code === "InternalError") && attempt < retries) {
           const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
@@ -137,29 +136,30 @@ async function loadConfig(client: any) {
   };
 }
 
-// ============ Raw JSON text extraction ============
-// Flatten nested raw JSON into path->text pairs for translation
-function extractRawTexts(
-  obj: Record<string, unknown>,
-  prefix: string,
-  maxLength: number,
-): [string, string][] {
+// ============ Raw JSON full text extraction ============
+// Recursively extract all string values from nested raw JSON, skipping codes/URLs/colors
+function extractRawTexts(obj: Record<string, unknown>, prefix: string): [string, string][] {
   const result: [string, string][] = [];
   for (const [key, val] of Object.entries(obj)) {
+    if (val === null || val === undefined) continue;
     const path = prefix ? `${prefix}.${key}` : key;
-    if (typeof val === "string" && val.trim().length > 0 && val.trim().length <= maxLength) {
-      // Skip fields that are clearly codes/IDs/numbers-only
-      if (/^[0-9a-fA-F-]+$/.test(val.trim())) continue;
-      if (/^#[0-9a-fA-F,|]+$/.test(val.trim())) continue; // color hex values
-      result.push([path, val.trim()]);
-    } else if (typeof val === "object" && val !== null && !Array.isArray(val)) {
-      result.push(...extractRawTexts(val as Record<string, unknown>, path, maxLength));
+    if (typeof val === "string" && val.trim().length > 0) {
+      const t = val.trim();
+      if (t.length === 1 && /^[-●○✓✗✔✘☆★►▸▪▫]$/.test(t)) continue; // single marker symbols
+      if (t.length <= 3 && /^[\d.]+$/.test(t)) continue; // short numbers like '4', '8'
+      if (/^[0-9a-fA-F]{20,}$/.test(t)) continue; // long hex strings
+      if (/^https?:\/\//.test(t)) continue; // URLs
+      if (/^#[0-9a-fA-F,| ]+$/.test(t)) continue; // hex colors
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) continue; // dates
+      result.push([path, t]);
+    } else if (typeof val === "object" && !Array.isArray(val)) {
+      result.push(...extractRawTexts(val as Record<string, unknown>, path));
     }
   }
   return result;
 }
 
-// Set a nested field by dot-separated path
+// Set a nested field by dot-separated path (e.g. "body.bodytype" -> up.raw.body.bodytype = value)
 function setNestedField(obj: any, path: string, value: string) {
   const parts = path.split(".");
   let current = obj;
@@ -251,6 +251,23 @@ Deno.serve(async (req) => {
             }
           }
 
+          // Also extract raw fields for model_detail
+          if (et === "model_detail" && fullRow.raw) {
+            let rawObj: Record<string, unknown> | null = null;
+            if (typeof fullRow.raw === "object" && fullRow.raw !== null && !Array.isArray(fullRow.raw)) {
+              rawObj = fullRow.raw as Record<string, unknown>;
+            } else if (typeof fullRow.raw === "string") {
+              try { rawObj = JSON.parse(fullRow.raw); } catch { /* ignore */ }
+            }
+            if (rawObj) {
+              const rawTexts = extractRawTexts(rawObj, "");
+              for (const [path, val] of rawTexts) {
+                texts.push(val);
+                fieldNames.push(path);
+              }
+            }
+          }
+
           if (texts.length === 0) {
             await client.from("translation_jobs").update({ status: "done", completed_at: new Date().toISOString() })
               .eq("entity_type", et).eq("jm_id", jmId).eq("target_locale", loc);
@@ -261,7 +278,15 @@ Deno.serve(async (req) => {
           const translated = await volcengineTranslate(config.volcKey, config.volcSecret, texts, "zh", volcLocale);
 
           const up: any = { ...fullRow };
-          fieldNames.forEach((k, i) => { if (translated[i]) up[k] = translated[i]; });
+          fieldNames.forEach((k, i) => {
+            if (translated[i]) {
+              if (et === "model_detail" && !getFields(et).includes(k)) {
+                setNestedField(up, "raw." + k, translated[i]);
+              } else {
+                up[k] = translated[i];
+              }
+            }
+          });
 
           const { error: wrErr } = await client.from(getTable(et, loc)).upsert(up, { onConflict: "jm_id" });
           if (wrErr) errors.push(`${et}_${jmId}: ${wrErr.message}`);
@@ -283,7 +308,7 @@ Deno.serve(async (req) => {
     }
 
     // TRANSLATE ENTITIES — one locale per call, batch-bulk translated
-    // Call with: { action, entity_type, target_locale (single), jm_ids? }
+    // Call with: { action, entity_type, target_locale (single), jm_ids?, chunks? }
     if (action === "translate_entities") {
       const config = await loadConfig(client);
       if (!config.enabled) return json({ error: "翻译功能未启用" }, 400);
@@ -294,7 +319,6 @@ Deno.serve(async (req) => {
         return json({ error: `无效实体类型: ${entityType}` }, 400);
       }
 
-      // Support single locale for faster per-locale calls
       const targetLocale = String(body.target_locale || body.target_locales?.[0] || "");
       if (!targetLocale || !TARGET_LOCALES.includes(targetLocale)) {
         return json({ error: `无效目标语言: ${targetLocale}` }, 400);
@@ -331,33 +355,38 @@ Deno.serve(async (req) => {
         return json({ ok: true, entity_type: entityType, target_locale: targetLocale, processed: 0, message: "没有需要翻译的实体" });
       }
 
-      // TRUNCATE source rows early — no artificial limit, translate all
-      const MAX_SOURCE_ENTITIES = body.limit_entities
-        ? Math.min(Number(body.limit_entities), 10000)
-        : 10000;
-      if (sourceRows.length > MAX_SOURCE_ENTITIES) {
-        sourceRows = sourceRows.slice(0, MAX_SOURCE_ENTITIES);
+      // Support chunked processing for large datasets via chunk_index/chunk_total
+      const chunkIndex = typeof body.chunk_index === "number" ? body.chunk_index : 0;
+      const chunkTotal = typeof body.chunk_total === "number" ? body.chunk_total : 1;
+      if (chunkTotal > 1) {
+        const chunkSize = Math.ceil(sourceRows.length / chunkTotal);
+        const start = chunkIndex * chunkSize;
+        const end = Math.min(start + chunkSize, sourceRows.length);
+        sourceRows = sourceRows.slice(start, end);
       }
 
-      // Build items with text fields
-      // IMPORTANT: Check which entities already have translations for this locale
+      // Check which entities already have translations for this locale
       const transTable = getTable(entityType, targetLocale);
       const { data: existingTrans } = await client.from(transTable).select("jm_id");
       const existingIds = new Set((existingTrans || []).map((r: any) => Number(r.jm_id)));
 
+      // Build items: one per entity, with ALL fields (known + raw) per entity
       const items: { row: any; jmId: string; fields: [string, string][] }[] = [];
       let skippedCount = 0;
       for (const row of sourceRows) {
         const jmId = Number(row.jm_id);
         if (existingIds.has(jmId)) { skippedCount++; continue; }
         const fields: [string, string][] = [];
+
+        // 1. Known text fields
         for (const f of textFields) {
           const val = row[f];
           if (val !== null && val !== undefined && String(val).trim()) {
             fields.push([f, String(val)]);
           }
         }
-        // Raw JSON extraction for model_detail
+
+        // 2. Extract ALL string values from raw JSON
         if (entityType === "model_detail" && row.raw) {
           let rawObj: Record<string, unknown> | null = null;
           if (typeof row.raw === "object" && row.raw !== null && !Array.isArray(row.raw)) {
@@ -366,60 +395,48 @@ Deno.serve(async (req) => {
             try { rawObj = JSON.parse(row.raw); } catch { /* ignore */ }
           }
           if (rawObj) {
-            const flatTexts = extractRawTexts(rawObj, "", 200);
-            // Cap raw texts per entity to avoid oversized API calls
-            const capped = flatTexts.slice(0, 30);
-            for (const [path, val] of capped) fields.push([path, val]);
+            const rawTexts = extractRawTexts(rawObj, "");
+            for (const [key, val] of rawTexts) fields.push([key, val]);
           }
         }
+
         if (fields.length > 0) items.push({ row, jmId: String(jmId), fields });
       }
 
-      const firstUnskipped = items.length > 0
-        ? { jm_id: items[0].jmId, fieldsCount: items[0].fields.length, firstFields: items[0].fields.slice(0, 5).map(function(kv: [string,string]) { return kv[0]; }) }
-        : (function() {
-            const r = sourceRows.find(function(sr: any) { return !existingIds.has(Number(sr.jm_id)); });
-            if (r) {
-              const fieldDump = textFields.map(function(f: string) {
-                const v = r[f];
-                return f + "=" + (v !== null && v !== undefined ? String(v).substring(0, 20) : "NULL");
-              }).join(";");
-              return { jm_id: r.jm_id, reason: "no fields extracted", textFieldValues: fieldDump };
-            }
-            return { reason: "no unskipped entities" };
-          })();
-
       if (items.length === 0) {
+        // Return debug info about the first unskipped entity
+        const unskipped = sourceRows.filter(function(r: any) { return !existingIds.has(Number(r.jm_id)); });
+        const debugEntity = unskipped.length > 0 ? {
+          jm_id: unskipped[0].jm_id,
+          name: String(unskipped[0].name ?? "NULL").substring(0, 30),
+          sizetype: String(unskipped[0].sizetype ?? "NULL"),
+          hasRaw: unskipped[0].raw ? "yes" : "no",
+          rawType: typeof unskipped[0].raw,
+          sampleTextFields: textFields.slice(0, 5).map(function(f: string) {
+            return f + "=" + String(unskipped[0][f] ?? "NULL").substring(0, 15);
+          }).join(","),
+        } : null;
         return json({
-          ok: true,
-          entity_type: entityType,
-          target_locale: targetLocale,
-          total_entities: sourceRows.length,
-          processed: 0,
-          skipped: skippedCount,
-          message: `所有 ${sourceRows.length} 个实体已有翻译，跳过 ${skippedCount} 个`,
+          ok: true, entity_type: entityType, target_locale: targetLocale,
+          total_entities: sourceRows.length, processed: 0, skipped: skippedCount,
+          debug: debugEntity,
+          message: skippedCount === sourceRows.length ? `所有 ${sourceRows.length} 个实体已有翻译` : "实体无文本字段需要翻译",
         });
       }
 
-      // Adaptive batch sizing: fewer entities per call for heavy-field types
-      const avgFieldsPerEntity = items.reduce((s, it) => s + it.fields.length, 0) / Math.max(1, items.length);
-      // Volcengine limit: ~50 texts per call for speed, max ~150
-      const MAX_TEXTS = Math.min(100, Math.max(50, avgFieldsPerEntity + 5));
-      const MAX_ENTITIES_PER_BATCH = Math.max(1, Math.floor(MAX_TEXTS / Math.max(1, avgFieldsPerEntity)));
-
-      // For large datasets (>300 entities), do the work in chunks to fit within
-      // Supabase's 150s edge function timeout. Each chunk is a separate Volcengine call.
-      // The client will call this function multiple times if needed.
-
+      // Batch processing: split entities into ~80-text groups for Volcengine
+      // Ensure at least 1 entity per batch even if it has many fields
+      const TARGET_TEXTS = 80;
       let totalProcessed = 0;
       const allErrors: string[] = [];
-      const sampleDetails: any[] = []; // only keep first few for feedback
+      const sampleDetails: any[] = [];
 
       let bi = 0;
       while (bi < items.length) {
         const batch: typeof items = [];
         let tc = 0;
-        while (bi < items.length && batch.length < MAX_ENTITIES_PER_BATCH && tc + items[bi].fields.length <= MAX_TEXTS) {
+        // Always include at least 1 entity. Cap at ~50 texts to avoid Volcengine oversized errors.
+        while (bi < items.length && (batch.length === 0 || (tc + items[bi].fields.length <= 50 && batch.length < 5))) {
           batch.push(items[bi]);
           tc += items[bi].fields.length;
           bi++;
@@ -443,7 +460,6 @@ Deno.serve(async (req) => {
               const tr = translated[ti];
               ti++;
               if (tr) {
-                // Raw JSON fields always go under 'raw' in the upsert object
                 if (entityType === "model_detail" && !getFields(entityType).includes(fieldName)) {
                   setNestedField(up, "raw." + fieldName, tr);
                 } else {
@@ -453,9 +469,7 @@ Deno.serve(async (req) => {
               }
             }
 
-            // Keep sample details small
             if (sampleDetails.length < 5 && hasChanges) {
-              // Fetch the translated fields correctly — they were in order of iteration
               const fieldOffset = ti - it.fields.length;
               const sampFields = it.fields.slice(0, 3).map(([fn, src], j) => ({
                 field: fn, source: src.substring(0, 40), translated: translated[fieldOffset + j]?.substring(0, 40) || "",
@@ -470,7 +484,7 @@ Deno.serve(async (req) => {
             totalProcessed++;
           }
         } catch (e: any) {
-          allErrors.push(`batch ${bi}: ${e.message}`);
+          allErrors.push(`batch: ${e.message}`);
           totalProcessed += batch.length;
         }
       }
@@ -482,8 +496,8 @@ Deno.serve(async (req) => {
         total_entities: sourceRows.length,
         processed: totalProcessed,
         skipped: skippedCount,
-        itemsCount: items.length,
-        debug: firstUnskipped,
+        chunk_index: chunkTotal > 1 ? chunkIndex : undefined,
+        chunk_total: chunkTotal > 1 ? chunkTotal : undefined,
         details: sampleDetails,
         errors: allErrors.slice(0, 10),
       });
