@@ -223,5 +223,6 @@
   "vr.360Exterior": "360 Exterior",
   "vr.description": "Supports 360 sequence frames and 3D panoramic interior",
   "vr.display": "VR Display",
-  "vr.interiorVR": "VR Interior"
+  "vr.interiorVR": "VR Interior",
+  "model.searchParams": "پیرامیٹرز تلاش کریں..."
 }

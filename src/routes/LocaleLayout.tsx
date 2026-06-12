@@ -39,7 +39,7 @@ export default function LocaleLayout() {
         <Outlet />
       </main>
       <InquiryFloatingButton />
-      <InquiryModal open={inquiryOpen} onClose={closeInquiry} locale={locale} />
+      <InquiryModal open={inquiryOpen} onClose={closeInquiry} />
       <SiteFooter />
     </div>
   );

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-06-10T07:50:28.565Z",
-  "usedKeyCount": 157,
+  "generatedAt": "2026-06-11T15:37:54.971Z",
+  "usedKeyCount": 158,
   "locales": [
     "ar",
     "en",
@@ -168,6 +168,8 @@
       "action.signOut",
       "home.globe.country",
       "home.globe.sales",
+      "hero.title",
+      "hero.subtitle",
       "action.browseHotModels",
       "inquiry.validation.required",
       "inquiry.validation.selectOne",
@@ -274,7 +276,6 @@
       "series.backToAllBrands",
       "series.levelAndRange",
       "series.viewSeries",
-      "hero.title",
       "common.level",
       "common.yearModel",
       "common.range",

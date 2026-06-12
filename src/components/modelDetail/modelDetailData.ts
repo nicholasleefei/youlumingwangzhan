@@ -1,4 +1,5 @@
 import { supabase } from "@/utils/supabaseClient";
+import { resolveTableName } from "@/utils/entityTranslation";
 
 export type CarPicture = {
   id: string;
@@ -71,9 +72,12 @@ type ModelImageConfig = {
   official_images: string[] | null;
 };
 
-export async function loadModelDetailData(modelId: string) {
+export async function loadModelDetailData(modelId: string, locale?: string) {
+  const modelsTable = resolveTableName("models_jumdata", locale ?? "zh-CN");
+  const detailsTable = resolveTableName("model_details", locale ?? "zh-CN");
+
   const { data, error: mErr } = await supabase
-    .from("models_jumdata")
+    .from(modelsTable)
     .select("*")
     .eq("id", modelId)
     .eq("activity_status", 0)
@@ -86,7 +90,7 @@ export async function loadModelDetailData(modelId: string) {
 
   const [{ data: dData, error: dErr }, { data: pData, error: pErr }, { data: cfgData, error: cfgErr }] = await Promise.all([
     supabase
-      .from("model_details")
+      .from(detailsTable)
       .select("id, model_id, model_jm_id, name, yeartype, price, sizetype, seatnum, drivemode, displacement2, geartype, raw")
       .eq("model_id", m.id)
       .maybeSingle(),
@@ -164,11 +168,12 @@ export type SeriesModelListItem = {
   updated_at?: string | null;
 };
 
-export async function loadSeriesModels(seriesId: string) {
+export async function loadSeriesModels(seriesId: string, locale?: string) {
   const id = String(seriesId || "").trim();
   if (!id) return [] as SeriesModelListItem[];
+  const table = resolveTableName("models_jumdata", locale ?? "zh-CN");
   const { data, error } = await supabase
-    .from("models_jumdata")
+    .from(table)
     .select("id, name, yeartype, price, salestate, updated_at")
     .eq("series_id", id)
     .eq("activity_status", 0)

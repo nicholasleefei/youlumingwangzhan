@@ -34,6 +34,7 @@
   "common.submitting": "Submitting...",
   "common.unnamedPosition": "Unnamed Position",
   "common.yearModel": "Year",
+  "hero.subtitle": "Focused on compliant operations and efficient services, we provide stable and reliable bulk procurement solutions of Chinese automobiles for global auto dealers and individuals",
   "hero.title": "Drive the Future with ChinaAuto",
   "home.globe.country": "Country",
   "home.globe.hint": "Drag to rotate · Scroll to zoom",
@@ -157,5 +158,6 @@
   "vr.360Exterior": "360 Exterior",
   "vr.description": "Supports 360 sequence frames and 3D panoramic interior",
   "vr.display": "VR Display",
-  "vr.interiorVR": "VR Interior"
+  "vr.interiorVR": "VR Interior",
+  "model.searchParams": "Параметрлерді іздеу..."
 }

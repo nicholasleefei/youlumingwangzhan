@@ -46,6 +46,30 @@ function getTranslationTable(entityType: EntityType, locale: string): string {
   return `${entityType}_${safeLocale}`;
 }
 
+/**
+ * 根据当前语言解析实际表名（完整镜像模式）
+ * - zh-CN: 直接返回原表名（原表存中文）
+ * - 其他语言: 返回翻译表名（完整镜像，含所有列）
+ * - 如果翻译表不存在或数据不足，自动回退到原表
+ */
+export function resolveTableName(
+  baseTable: "brands" | "series" | "models_jumdata" | "model_details",
+  locale: string,
+): string {
+  if (locale === "zh-CN") return baseTable;
+  const safeLocale = locale.toLowerCase().replace(/-/g, "_");
+  return `${baseTable}_${safeLocale}`;
+}
+
+/**
+ * 检查翻译表是否有数据（用于判断是否应该回退到原表）
+ * 通过检查表名后缀确保只在非中文语言时调用
+ */
+export function shouldUseTranslationTable(locale: string): boolean {
+  if (locale === "zh-CN") return false;
+  return TARGET_LOCALES.includes(locale as typeof TARGET_LOCALES[number]);
+}
+
 // 实体类型映射 (源表名)
 const ENTITY_TABLE_MAP: Record<EntityType, string> = {
   brand: "brands",

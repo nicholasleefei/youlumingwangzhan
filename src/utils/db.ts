@@ -1,7 +1,6 @@
 import { supabase } from "./supabaseClient";
 import type { Locale } from "@/i18n/locales";
-import { fetchEntityTranslations, applyBrandTranslations, applySeriesTranslations } from "./entityTranslation";
-import type { EntityTranslationData } from "./entityTranslation";
+import { resolveTableName, shouldUseTranslationTable } from "./entityTranslation";
 
 export type BrandRow = {
   id: string;
@@ -33,6 +32,7 @@ export type SeriesRow = {
   activity_status: number;
   created_at: string;
   updated_at: string;
+  brand_name?: string | null;
 };
 
 export type ModelRow = {
@@ -288,8 +288,8 @@ export async function listModels(params: {
   const [{ data: models, error: modelErr }, { data: translations, error: trErr }, { data: seriesList, error: seriesErr }, { data: brands, error: brandErr }] = await Promise.all([
     q,
     supabase.from("model_translations").select("*").eq("locale", locale),
-    supabase.from("series").select("id, jm_id, activity_status, brand_id, name, fullname"),
-    supabase.from("brands").select("id, jm_id, activity_status, name"),
+    supabase.from(resolveTableName("series", locale)).select("id, jm_id, activity_status, brand_id, name, fullname"),
+    supabase.from(resolveTableName("brands", locale)).select("id, jm_id, activity_status, name"),
   ]);
 
   if (modelErr) throw modelErr;
@@ -338,41 +338,23 @@ export async function listModels(params: {
     if (!coverMap.has(mid)) coverMap.set(mid, url);
   });
 
-  // Fetch entity translations for brand & series names
-  const brandJmIds: number[] = [];
-  const seriesJmIds: number[] = [];
-  (seriesList ?? []).forEach((s: any) => {
-    if (typeof s.jm_id === "number") seriesJmIds.push(s.jm_id);
-  });
-  (brands ?? []).forEach((b: any) => {
-    if (typeof b.jm_id === "number") brandJmIds.push(b.jm_id);
-  });
-
-  const [brandTr, seriesTr] = await Promise.all([
-    brandJmIds.length > 0 ? fetchEntityTranslations("brand", brandJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-    seriesJmIds.length > 0 ? fetchEntityTranslations("series", seriesJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-  ]);
-
-  // Build brand-id -> name map for series brand lookup
+  // 完整镜像模式：brands/series 翻译表已经是完整镜像，名称已经翻译
   const brandNameOfId = new Map<string, string>();
   (brands ?? []).forEach((b: any) => {
-    const translated = brandTr.get(String(b.jm_id))?.name ?? b.name;
-    brandNameOfId.set(b.id, translated);
+    brandNameOfId.set(b.id, b.name);
   });
 
   const items: ModelListItem[] = validModels.map((m: any) => {
     const tr = trMap.get(m.id);
     const seriesInfo = m.series_id ? seriesStatusMap.get(m.series_id) : null;
-    const rawSeriesName = seriesInfo ? (seriesInfo.fullname || seriesInfo.name) : null;
-    const translatedSeriesName = seriesInfo ? (seriesTr.get(String(seriesInfo.jm_id))?.name ?? seriesTr.get(String(seriesInfo.jm_id))?.fullname ?? rawSeriesName) : null;
-    const seriesName = translatedSeriesName ?? rawSeriesName;
+    const seriesName = seriesInfo ? (seriesInfo.fullname || seriesInfo.name) : null;
 
     const jmExterior = Array.isArray(m.exterior_images) ? m.exterior_images.filter((u: any) => typeof u === "string" && u.trim()) : [];
     const jumeFallback = (jmExterior[0] as string | undefined) ?? null;
 
     // Translate brand name if possible, else use raw value
     const rawBrand = typeof m.brand === "string" ? m.brand : null;
-    const translatedBrand = (seriesInfo && seriesInfo.brand_id) ? (brandNameOfId.get(seriesInfo.brand_id) ?? rawBrand) : rawBrand;
+    const brand = (seriesInfo && seriesInfo.brand_id) ? (brandNameOfId.get(seriesInfo.brand_id) ?? rawBrand) : rawBrand;
 
     return {
       ...m,
@@ -381,7 +363,7 @@ export async function listModels(params: {
       cover_image: coverMap.get(m.jm_id) ?? jumeFallback,
       fuel_type: m.energy_type,
       series_name: seriesName,
-      brand: translatedBrand,
+      brand,
     };
   });
 
@@ -398,45 +380,72 @@ export async function listModelsByIds(params: {
   const uniqIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
   if (uniqIds.length === 0) return [] as InquirySelectedModel[];
 
-  const cacheKey = `listModelsByIds_inquiry_${uniqIds.slice().sort().join("|")}_${locale}_v2`;
+  const cacheKey = `listModelsByIds_inquiry_${uniqIds.slice().sort().join("|")}_${locale}_v3`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
     return (cachedData as InquirySelectedModel[]).slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
 
+  // 完整镜像模式：直接查翻译表，不需要再单独翻译
+  const detailsTable = resolveTableName("model_details", locale);
+  const jumdataTable = resolveTableName("models_jumdata", locale);
+  const originalDetailsTable = "model_details";
+  const originalJumdataTable = "models_jumdata";
+
   const { data: details, error: detErr } = await supabase
-    .from("model_details")
+    .from(detailsTable)
     .select("model_id, name, yeartype, brandname, parentname, brand_jm_id, series_jm_id, jm_id")
     .in("model_id", uniqIds)
     .eq("activity_status", 0)
     .limit(5000);
+
+  // 翻译表无数据时，回退到原表
+  if ((!details || details.length === 0) && locale !== "zh-CN") {
+    const { data: fbDetails, error: fbErr } = await supabase
+      .from(originalDetailsTable)
+      .select("model_id, name, yeartype, brandname, parentname, brand_jm_id, series_jm_id, jm_id")
+      .in("model_id", uniqIds)
+      .eq("activity_status", 0)
+      .limit(5000);
+    if (!fbErr && fbDetails?.length) {
+      details.length = 0; // reuse the variable
+      Array.prototype.push.apply(details, fbDetails);
+    }
+  }
   if (detErr) throw detErr;
 
   const byId = new Map<string, any>();
-  const allBrandJmIds: number[] = [];
-  const allSeriesJmIds: number[] = [];
-  const allModelJmIds: number[] = [];
   (details ?? []).forEach((r: any) => {
     const id = String(r?.model_id ?? "").trim();
     if (!id) return;
     if (byId.has(id)) return;
     byId.set(id, r);
-    if (typeof r.brand_jm_id === "number") allBrandJmIds.push(r.brand_jm_id);
-    if (typeof r.series_jm_id === "number") allSeriesJmIds.push(r.series_jm_id);
-    if (typeof r.jm_id === "number") allModelJmIds.push(r.jm_id);
   });
 
   const missingIds = uniqIds.filter((id) => !byId.has(id));
   if (missingIds.length > 0) {
     const { data: jmRows, error: jmErr } = await supabase
-      .from("models_jumdata")
+      .from(jumdataTable)
       .select("id, name, brand_name, series_name, brand_jm_id, series_jm_id")
       .in("id", missingIds)
       .eq("activity_status", 0)
       .limit(5000);
+
+    // 翻译表无数据时回退
+    let fallbackJmRows = jmRows;
+    if ((!jmRows || jmRows.length === 0) && locale !== "zh-CN") {
+      const { data: fb } = await supabase
+        .from(originalJumdataTable)
+        .select("id, name, brand_name, series_name, brand_jm_id, series_jm_id")
+        .in("id", missingIds)
+        .eq("activity_status", 0)
+        .limit(5000);
+      fallbackJmRows = fb;
+    }
+
     if (jmErr) throw jmErr;
-    (jmRows ?? []).forEach((r: any) => {
+    (fallbackJmRows ?? []).forEach((r: any) => {
       const id = String(r?.id ?? "").trim();
       if (!id) return;
       if (byId.has(id)) return;
@@ -450,41 +459,23 @@ export async function listModelsByIds(params: {
         series_jm_id: r?.series_jm_id ?? null,
         jm_id: r?.id ?? null,
       });
-      if (typeof r.brand_jm_id === "number") allBrandJmIds.push(r.brand_jm_id);
-      if (typeof r.series_jm_id === "number") allSeriesJmIds.push(r.series_jm_id);
-      if (typeof r.id === "number") allModelJmIds.push(r.id);
     });
   }
 
-  const [brandTr, seriesTr, modelTr] = await Promise.all([
-    allBrandJmIds.length > 0 ? fetchEntityTranslations("brand", allBrandJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-    allSeriesJmIds.length > 0 ? fetchEntityTranslations("series", allSeriesJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-    allModelJmIds.length > 0 ? fetchEntityTranslations("model_detail", allModelJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-  ]);
-
+  // 完整镜像模式：翻译表已有翻译后的值，直接使用
   const items: InquirySelectedModel[] = uniqIds
     .map((id) => {
       const r = byId.get(id);
       if (!r) return null;
-      const rawBrand = r?.brandname ? String(r.brandname) : null;
-      const rawSeries = r?.parentname ? String(r.parentname) : null;
-      const rawName = String(r?.name ?? "");
-
-      const translatedBrand = typeof r.brand_jm_id === "number" && brandTr.get(String(r.brand_jm_id))?.name
-        ? brandTr.get(String(r.brand_jm_id))!.name!
-        : rawBrand;
-      const translatedSeries = typeof r.series_jm_id === "number" && seriesTr.get(String(r.series_jm_id))?.name
-        ? seriesTr.get(String(r.series_jm_id))!.name!
-        : rawSeries;
-      const translatedName = typeof r.jm_id === "number"
-        ? (modelTr.get(String(r.jm_id))?.name ?? rawName)
-        : rawName;
+      const brand = r?.brandname ? String(r.brandname) : null;
+      const seriesName = r?.parentname ? String(r.parentname) : null;
+      const name = buildInquiryDisplayName(String(r?.name ?? ""), r?.yeartype ?? null);
 
       return {
         id,
-        display_name: buildInquiryDisplayName(translatedName, r?.yeartype ?? null),
-        brand: translatedBrand,
-        series_name: translatedSeries,
+        display_name: name,
+        brand,
+        series_name: seriesName,
       };
     })
     .filter(Boolean) as InquirySelectedModel[];
@@ -495,19 +486,21 @@ export async function listModelsByIds(params: {
 }
 
 export async function listSeriesByIds(params: { ids: string[]; locale?: Locale }) {
-  const { ids, locale } = params;
+  const { ids, locale = "zh-CN" } = params;
   const uniqIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
   if (uniqIds.length === 0) return [] as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>;
 
-  const cacheKey = `listSeriesByIds_inquiry_${uniqIds.slice().sort().join("|")}_${locale ?? "none"}_v2`;
+  const cacheKey = `listSeriesByIds_inquiry_${uniqIds.slice().sort().join("|")}_${locale}_v3`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     const order = new Map(ids.map((id, idx) => [String(id), idx] as const));
     return (cachedData as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null }>).slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
 
+  // 完整镜像模式：直接查对应语言的翻译表
+  const table = resolveTableName("series", locale);
   const { data, error } = await supabase
-    .from("series")
+    .from(table)
     .select("id, name, fullname, brand_name, jm_id")
     .in("id", uniqIds)
     .eq("activity_status", 0)
@@ -516,17 +509,15 @@ export async function listSeriesByIds(params: { ids: string[]; locale?: Locale }
 
   let items = (data ?? []) as Array<{ id: string; name: string; fullname: string | null; brand_name: string | null; jm_id?: number }>;
 
-  if (locale && locale !== "zh-CN" && items.length > 0) {
-    const jmIds = items.map((s: any) => s.jm_id as number).filter((n) => typeof n === "number" && Number.isFinite(n));
-    if (jmIds.length > 0) {
-      const translations = await fetchEntityTranslations("series", jmIds, locale);
-      items = items.map((s: any) => ({
-        ...s,
-        name: translations.get(String(s.jm_id))?.name ?? s.name,
-        fullname: translations.get(String(s.jm_id))?.fullname ?? s.fullname,
-        brand_name: translations.get(String(s.jm_id))?.brandname ?? s.brand_name,
-      }));
-    }
+  // 翻译表为空时回退到原表
+  if (items.length === 0 && locale !== "zh-CN") {
+    const { data: fb, error: fbErr } = await supabase
+      .from("series")
+      .select("id, name, fullname, brand_name, jm_id")
+      .in("id", uniqIds)
+      .eq("activity_status", 0)
+      .limit(5000);
+    if (!fbErr) items = (fb ?? []) as any;
   }
 
   setCachedData(cacheKey, items);
@@ -557,23 +548,25 @@ export async function getModelBySlug(params: { slug: string; locale: Locale }) {
 
   // 检查车系和品牌状态
   if (model.series_id) {
+    const seriesTable = resolveTableName("series", locale);
     const { data: series } = await supabase
-      .from("series")
+      .from(seriesTable)
       .select("activity_status, brand_id")
       .eq("id", model.series_id)
       .single();
-    
+
     if (!series || series.activity_status !== 0) {
       return null;
     }
-    
+
     if (series.brand_id) {
+      const brandsTable = resolveTableName("brands", locale);
       const { data: brand } = await supabase
-        .from("brands")
+        .from(brandsTable)
         .select("activity_status")
         .eq("id", series.brand_id)
         .single();
-      
+
       if (!brand || brand.activity_status !== 0) {
         return null;
       }
@@ -584,32 +577,20 @@ export async function getModelBySlug(params: { slug: string; locale: Locale }) {
     supabase.from("model_translations").select("*").eq("model_id", model.id).eq("locale", locale).maybeSingle(),
     supabase.from("car_pictures").select("*").eq("model_jm_id", model.jm_id).order("sort_order", { ascending: true }),
     model.series_id
-      ? supabase.from("series").select("id, jm_id, name, fullname, brand_id").eq("id", model.series_id).single()
+      ? supabase.from(resolveTableName("series", locale)).select("id, jm_id, name, fullname, brand_id").eq("id", model.series_id).single()
       : Promise.resolve({ data: null, error: null }),
     model.series_id
-      ? supabase.from("series").select("brand_id").eq("id", model.series_id).single().then(({ data: s }) =>
+      ? supabase.from(resolveTableName("series", locale)).select("brand_id").eq("id", model.series_id).single().then(({ data: s }) =>
           s?.brand_id
-            ? supabase.from("brands").select("id, jm_id, name").eq("id", s.brand_id).single()
+            ? supabase.from(resolveTableName("brands", locale)).select("id, jm_id, name").eq("id", s.brand_id).single()
             : Promise.resolve({ data: null, error: null }),
         )
       : Promise.resolve({ data: null, error: null }),
   ]);
 
-  // Fetch translations for the related brand and series
-  let seriesNameTr: string | null = null;
-  let brandNameTr: string | null = null;
-  if (locale !== "zh-CN") {
-    const brandJmId = brandData?.data?.jm_id as number | undefined;
-    const seriesJmId = seriesData?.data?.jm_id as number | undefined;
-    if (brandJmId || seriesJmId) {
-      const [bt, st] = await Promise.all([
-        brandJmId ? fetchEntityTranslations("brand", [brandJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-        seriesJmId ? fetchEntityTranslations("series", [seriesJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-      ]);
-      if (brandJmId) brandNameTr = bt.get(String(brandJmId))?.name ?? null;
-      if (seriesJmId) seriesNameTr = st.get(String(seriesJmId))?.name ?? st.get(String(seriesJmId))?.fullname ?? null;
-    }
-  }
+  // 完整镜像模式：翻译表已经是完整镜像，brand/series 名称已经是翻译后的
+  const seriesNameTr: string | null = seriesData?.data?.name ?? null;
+  const brandNameTr: string | null = brandData?.data?.name ?? null;
 
   const result = {
     model,
@@ -678,15 +659,16 @@ export async function createInquiry(params: {
 }
 
 export async function listBrands(params?: { locale?: Locale }) {
-  const locale = params?.locale;
-  const cacheKey = `listBrands_${locale ?? "none"}`;
+  const locale = params?.locale ?? "zh-CN";
+  const cacheKey = `listBrands_${locale}`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     return cachedData;
   }
 
+  const table = resolveTableName("brands", locale);
   const { data, error } = await supabase
-    .from("brands")
+    .from(table)
     .select("*")
     .in("activity_status", [0])
     .order("name", { ascending: true });
@@ -695,14 +677,14 @@ export async function listBrands(params?: { locale?: Locale }) {
 
   let result = data as BrandRow[];
 
-  if (locale && locale !== "zh-CN" && result.length > 0) {
-    const jmIds = result.map((b) => b.jm_id).filter((n) => typeof n === "number" && Number.isFinite(n));
-    if (jmIds.length > 0) {
-      const translations = await fetchEntityTranslations("brand", jmIds, locale);
-      const translated = applyBrandTranslations(result, translations) as BrandRow[];
-      setCachedData(cacheKey, translated);
-      return translated;
-    }
+  // 翻译表为空时，回退到中文原表
+  if ((!result || result.length === 0) && locale !== "zh-CN") {
+    const { data: fb } = await supabase
+      .from("brands")
+      .select("*")
+      .in("activity_status", [0])
+      .order("name", { ascending: true });
+    result = (fb || []) as BrandRow[];
   }
 
   setCachedData(cacheKey, result);
@@ -714,12 +696,14 @@ export async function listSeries(params: {
   brandJmId?: number;
   locale?: Locale;
 }) {
-  const { brandId, brandJmId, locale } = params;
-  const cacheKey = `listSeries_${brandId || ''}_${brandJmId || ''}_${locale ?? "none"}_v4`;
+  const { brandId, brandJmId, locale = "zh-CN" } = params;
+  const cacheKey = `listSeries_${brandId || ''}_${brandJmId || ''}_${locale}_v5`;
   const cachedData = getCachedData(cacheKey);
   if (cachedData) {
     return cachedData;
   }
+
+  const table = resolveTableName("series", locale);
 
   // If both provided, we need to do two separate queries and combine
   let data: SeriesRow[] = [];
@@ -754,7 +738,7 @@ export async function listSeries(params: {
   if (brandId && brandJmId) {
     // Query by brand_id
     const { data: data1, error: err1 } = await supabase
-      .from("series")
+      .from(table)
       .select("*")
       .eq("brand_id", brandId)
       .or("activity_status.is.null,activity_status.eq.0")
@@ -763,7 +747,7 @@ export async function listSeries(params: {
 
     // Query by brand_jm_id
     const { data: data2, error: err2 } = await supabase
-      .from("series")
+      .from(table)
       .select("*")
       .eq("brand_jm_id", brandJmId)
       .or("activity_status.is.null,activity_status.eq.0")
@@ -780,7 +764,7 @@ export async function listSeries(params: {
     });
   } else if (brandId) {
     const { data: result, error } = await supabase
-      .from("series")
+      .from(table)
       .select("*")
       .eq("brand_id", brandId)
       .or("activity_status.is.null,activity_status.eq.0")
@@ -789,7 +773,7 @@ export async function listSeries(params: {
     data = result || [];
   } else if (brandJmId) {
     const { data: result, error } = await supabase
-      .from("series")
+      .from(table)
       .select("*")
       .eq("brand_jm_id", brandJmId)
       .or("activity_status.is.null,activity_status.eq.0")
@@ -798,7 +782,7 @@ export async function listSeries(params: {
     data = result || [];
   } else {
     const { data: result, error } = await supabase
-      .from("series")
+      .from(table)
       .select("*")
       .or("activity_status.is.null,activity_status.eq.0")
       .order("name", { ascending: true });
@@ -806,18 +790,18 @@ export async function listSeries(params: {
     data = result || [];
   }
 
+  // 如果翻译表为空，回退到原表（中文）
+  if (data.length === 0 && locale !== "zh-CN") {
+    const { data: fallbackData, error: fbErr } = await supabase
+      .from("series")
+      .select("*")
+      .or("activity_status.is.null,activity_status.eq.0")
+      .order("name", { ascending: true });
+    if (!fbErr) data = (fallbackData || []) as SeriesRow[];
+  }
+
   // Only cache if we actually got data
   let result = data as SeriesRow[];
-
-  if (locale && locale !== "zh-CN" && result.length > 0) {
-    const jmIds = result.map((s) => s.jm_id).filter((n) => typeof n === "number" && Number.isFinite(n));
-    if (jmIds.length > 0) {
-      const translations = await fetchEntityTranslations("series", jmIds, locale);
-      const translated = applySeriesTranslations(result, translations) as SeriesRow[];
-      setCachedData(cacheKey, translated);
-      return translated;
-    }
-  }
 
   if (data.length > 0) {
     setCachedData(cacheKey, result);
@@ -826,7 +810,12 @@ export async function listSeries(params: {
 }
 
 export async function getSeriesById(id: string, locale?: Locale) {
-  const { data, error } = await supabase
+  // 翻译表没有 brands 的 FK 约束，无法做 join 查询。
+  // 策略：先查原表获取结构+join数据，再查翻译表覆盖翻译字段。
+  const useTranslation = locale && locale !== "zh-CN";
+
+  // Always query original table for joined data (it has the FK to brands)
+  const { data: result, error } = await supabase
     .from("series")
     .select("*, brands(*)")
     .eq("id", id)
@@ -836,31 +825,43 @@ export async function getSeriesById(id: string, locale?: Locale) {
     throw error;
   }
 
-  if (!data) return null;
-
-  const result = data as (SeriesRow & { brands: BrandRow }) | null;
   if (!result) return null;
 
-  if (locale && locale !== "zh-CN") {
-    const brandJmId = result.brands?.jm_id;
-    const seriesJmId = result.jm_id;
+  let seriesData = result as (SeriesRow & { brands: BrandRow });
 
-    const [brandTr, seriesTr] = await Promise.all([
-      brandJmId ? fetchEntityTranslations("brand", [brandJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-      seriesJmId ? fetchEntityTranslations("series", [seriesJmId], locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-    ]);
+  // Apply translation overrides from translation table
+  if (useTranslation) {
+    const table = resolveTableName("series", locale!);
+    const { data: transRow } = await supabase
+      .from(table)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
-    if (brandTr.size > 0 && result.brands) {
-      result.brands.name = brandTr.get(String(brandJmId!))?.name ?? result.brands.name;
+    if (transRow) {
+      // Merge translatable fields (only override if translated value is non-empty)
+      if (typeof transRow.name === "string" && transRow.name.trim()) seriesData.name = transRow.name;
+      if (typeof transRow.fullname === "string" && transRow.fullname.trim()) seriesData.fullname = transRow.fullname;
+      if (typeof transRow.subcompany_name === "string" && transRow.subcompany_name.trim()) seriesData.subcompany_name = transRow.subcompany_name;
+      if (typeof transRow.salestate === "string" && transRow.salestate.trim()) seriesData.salestate = transRow.salestate;
+      if (typeof transRow.brand_name === "string" && transRow.brand_name.trim()) seriesData.brand_name = transRow.brand_name;
     }
-    if (seriesTr.size > 0) {
-      result.name = seriesTr.get(String(seriesJmId))?.name ?? result.name;
-      result.fullname = seriesTr.get(String(seriesJmId))?.fullname ?? result.fullname;
-      result.subcompany_name = seriesTr.get(String(seriesJmId))?.subcompany_name ?? result.subcompany_name;
+
+    // Translate brand name from brands translation table
+    const brandTable = resolveTableName("brands", locale!);
+    if (seriesData.brands) {
+      const { data: translatedBrand } = await supabase
+        .from(brandTable)
+        .select("name")
+        .eq("id", seriesData.brands.id)
+        .maybeSingle();
+      if (translatedBrand?.name) {
+        seriesData.brands.name = translatedBrand.name;
+      }
     }
   }
 
-  return result;
+  return seriesData;
 }
 
 export async function listModelsBySeriesId(params: {
@@ -868,7 +869,7 @@ export async function listModelsBySeriesId(params: {
   locale: Locale;
 }) {
   const { seriesId, locale } = params;
-  const cacheKey = `listModelsBySeriesId_${seriesId}_${locale}_v5`;
+  const cacheKey = `listModelsBySeriesId_${seriesId}_${locale}_v6`;
 
   // 检查缓存
   const cachedData = getCachedData(cacheKey);
@@ -877,8 +878,9 @@ export async function listModelsBySeriesId(params: {
   }
 
   try {
+    const table = resolveTableName("models_jumdata", locale);
     const { data: rows, error } = await supabase
-      .from("models_jumdata")
+      .from(table)
       .select("id")
       .eq("series_id", seriesId)
       .eq("activity_status", 0)

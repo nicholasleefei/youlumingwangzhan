@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { X } from "lucide-react";
 import Modal from "@/components/ui/Modal";
-import { type Locale } from "@/i18n/locales";
+import { normalizeLocale, type Locale } from "@/i18n/locales";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
 import { createInquiry, listModelsByIds, listSeriesByIds, type InquirySelectedModel } from "@/utils/db";
 
@@ -22,13 +22,14 @@ type FormState = {
 
 type Props = {
   open: boolean;
-  locale: Locale;
   onClose: () => void;
 };
 
-export default function InquiryModal({ open, locale, onClose }: Props) {
+export default function InquiryModal({ open, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { locale: rawLocale } = useParams();
+  const locale = (normalizeLocale(rawLocale ?? null) ?? "en") as Locale;
   const base = `/${locale}`;
 
   const selectedModelIds = useInquiryDraft((s) => s.selectedModelIds);

@@ -151,6 +151,9 @@ function extractRawTexts(obj: Record<string, unknown>, prefix: string): [string,
       if (/^https?:\/\//.test(t)) continue; // URLs
       if (/^#[0-9a-fA-F,| ]+$/.test(t)) continue; // hex colors
       if (/^\d{4}-\d{2}-\d{2}$/.test(t)) continue; // dates
+      // Also skip non-Chinese strings that don't need translation (pure ASCII/numbers/symbols)
+      // Only extract strings that contain at least some Chinese characters
+      if (!/[一-鿿㐀-䶿豈-﫿]/.test(t)) continue;
       result.push([path, t]);
     } else if (typeof val === "object" && !Array.isArray(val)) {
       result.push(...extractRawTexts(val as Record<string, unknown>, path));
@@ -278,6 +281,7 @@ Deno.serve(async (req) => {
           const translated = await volcengineTranslate(config.volcKey, config.volcSecret, texts, "zh", volcLocale);
 
           const up: any = { ...fullRow };
+          up.source_updated_at = fullRow.updated_at; // 追踪原表更新时间
           fieldNames.forEach((k, i) => {
             if (translated[i]) {
               if (et === "model_detail" && !getFields(et).includes(k)) {
@@ -453,7 +457,9 @@ Deno.serve(async (req) => {
 
           let ti = 0;
           for (const it of batch) {
+            // 完整镜像：复制原表整行数据（所有列），再覆盖翻译后的文本字段
             const up: any = { ...it.row };
+            up.source_updated_at = it.row.updated_at; // 追踪原表更新时间
             let hasChanges = false;
 
             for (const [fieldName, sourceText] of it.fields) {

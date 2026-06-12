@@ -50,11 +50,7 @@ export default function LanguageSwitcher() {
               onClick={() => {
                 setOpen(false);
                 window.localStorage.setItem(STORAGE_KEY, l);
-                navigate({
-                  pathname: replaceLocaleInPath(location.pathname, l),
-                  search: location.search,
-                  hash: location.hash,
-                });
+                window.location.href = replaceLocaleInPath(location.pathname, l) + location.search + location.hash;
               }}
               className={
                 "flex w-full items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-zinc-50 " +

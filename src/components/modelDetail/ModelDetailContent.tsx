@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -20,15 +20,13 @@ import {
 import { supabase } from "@/utils/supabaseClient";
 import { getSeriesById } from "@/utils/db";
 import type { Locale } from "@/i18n/locales";
-import { flattenParams } from "@/utils/paramFlatten";
+import { flattenParams, flattenParamsGrouped } from "@/utils/paramFlatten";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
-import { fetchEntityTranslations, getTranslatedField, mergeRawTranslations } from "@/utils/entityTranslation";
-import type { EntityTranslationData } from "@/utils/entityTranslation";
+import { resolveTableName } from "@/utils/entityTranslation";
 
 type Variant = "page" | "modal";
 
 type Props = {
-  locale: string;
   modelId: string;
   variant: Variant;
   onClose?: () => void;
@@ -49,8 +47,10 @@ function getErrorMessage(e: unknown) {
   return "加载失败";
 }
 
-export default function ModelDetailContent({ locale, modelId, variant, onClose }: Props) {
+export default function ModelDetailContent({ modelId, variant, onClose }: Props) {
   const { t } = useTranslation();
+  const { locale: rawLocale } = useParams();
+  const locale = rawLocale ?? "en";
   const base = `/${locale}`;
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -86,7 +86,6 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     index: 0,
   });
 
-  const [modelTr, setModelTr] = useState<Map<string, EntityTranslationData>>(new Map());
 
   useEffect(() => {
     let active = true;
@@ -101,7 +100,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     setCompareModel(null);
     setCompareDetails(null);
 
-    loadModelDetailData(modelId)
+    loadModelDetailData(modelId, locale)
       .then((res) => {
         if (!active) return;
         setModel(res.model);
@@ -122,16 +121,8 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     };
   }, [modelId]);
 
-  useEffect(() => {
-    if (!model || locale === "zh-CN") return;
-    let active = true;
-    const jmIds: number[] = [model.jm_id];
-    if (compareModel?.jm_id) jmIds.push(compareModel.jm_id);
-    fetchEntityTranslations("model_detail", jmIds, locale as Locale)
-      .then((tr) => { if (active) setModelTr(tr); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [model?.jm_id, compareModel?.jm_id, locale]);
+  // 完整镜像模式：model 和 details 数据从翻译表加载，name 已经翻译
+  // models_jumdata 翻译表是完整镜像，name 字段已翻译
 
   const fromSeriesId = useMemo(() => {
     const st: any = location.state;
@@ -186,7 +177,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     }
 
     setSeriesLoading(true);
-    loadSeriesModels(sid)
+    loadSeriesModels(sid, locale)
       .then((rows) => {
         if (!active) return;
         setSeriesModels(rows);
@@ -225,9 +216,9 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     }
 
     Promise.all([
-      supabase.from("models_jumdata").select("*").eq("id", id).eq("activity_status", 0).maybeSingle(),
+      supabase.from(resolveTableName("models_jumdata", locale)).select("*").eq("id", id).eq("activity_status", 0).maybeSingle(),
       supabase
-        .from("model_details")
+        .from(resolveTableName("model_details", locale))
         .select("id, model_id, model_jm_id, name, yeartype, price, sizetype, seatnum, drivemode, displacement2, geartype, raw")
         .eq("model_id", id)
         .maybeSingle(),
@@ -277,27 +268,27 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
     return m.get(imageTab) ?? availableTabs[0] ?? { key: "official" as const, label: t("model.imageGallery"), images: [] as string[] };
   }, [imageTab, availableTabs]);
 
-  const title = getTranslatedField(modelTr, model?.jm_id, "name", model?.name ?? "") || model?.name || t("model.modelDetail");
+  const title = model?.name || t("model.modelDetail");
   const subtitle = pickFirstString(model?.yeartype, details?.yeartype, model?.salestate) ?? null;
 
+  // 完整镜像模式：data 从翻译表加载，但 raw JSONB 没有被镜像（因为 raw 太大，翻译表只存 name 等 scalar 字段）
+  // raw 直接从原始表获取（scalar 字段如 name 已从翻译表翻译）
   const translatedDetails = useMemo(() => {
     if (!details) return null;
-    const tr = modelTr.get(String(model?.jm_id ?? ""));
-    const mergedRaw = mergeRawTranslations(details.raw as Record<string, unknown> | null | undefined, tr?.raw as any);
-    if (mergedRaw === details.raw) return details;
-    return { ...details, raw: mergedRaw };
-  }, [details, modelTr, model?.jm_id]);
+    return details;
+  }, [details]);
 
   const translatedCompareDetails = useMemo(() => {
     if (!compareDetails) return null;
-    const tr = modelTr.get(String(compareModel?.jm_id ?? ""));
-    const mergedRaw = mergeRawTranslations(compareDetails.raw, tr?.raw as Record<string, unknown> | undefined);
-    if (mergedRaw === compareDetails.raw) return compareDetails;
-    return { ...compareDetails, raw: mergedRaw };
-  }, [compareDetails, modelTr, compareModel?.jm_id]);
+    return compareDetails;
+  }, [compareDetails]);
 
-  const allParamsPayload = useMemo(() => translatedDetails?.raw ?? {}, [translatedDetails]);
-  const inlineAllParams = useMemo(() => flattenParams(allParamsPayload, { maxItems: 320, maxDepth: 6 }), [allParamsPayload]);
+  const allParamsSections = useMemo(() => {
+    const raw = translatedDetails?.raw;
+    const groups = flattenParamsGrouped(raw, { maxItems: 600, maxDepth: 6 });
+    return groups.length > 0 ? [{ modelName: model?.name ?? "", groups }] : [];
+  }, [translatedDetails, model?.name]);
+  const inlineAllParams = useMemo(() => flattenParams(translatedDetails?.raw ?? {}, { maxItems: 320, maxDepth: 6 }), [translatedDetails]);
 
   const openLightbox = (t: string, images: string[], index: number) => {
     setLightbox({ open: true, title: t, images, index });
@@ -397,7 +388,7 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
         onChangeIndex={(next) => setLightbox((p) => ({ ...p, index: next }))}
         onClose={() => setLightbox((p) => ({ ...p, open: false }))}
       />
-      <AllParamsModal open={paramsOpen} title={`${t("model.allParams")} - ${title}`} payload={allParamsPayload} onClose={() => setParamsOpen(false)} />
+      <AllParamsModal open={paramsOpen} title={`${t("model.allParams")} - ${title}`} sections={allParamsSections} onClose={() => setParamsOpen(false)} />
 
       <div className={variant === "modal" ? "p-6" : "mx-auto max-w-screen-2xl px-6 py-8 lg:py-12"}>
         <div ref={exportRef} className="bg-transparent">
@@ -416,7 +407,6 @@ export default function ModelDetailContent({ locale, modelId, variant, onClose }
             exporting={exporting}
             variant={variant}
             onClose={onClose}
-            addToInquiryText={t("action.addToInquiry")}
           />
 
           <div className="pt-4">

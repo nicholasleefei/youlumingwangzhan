@@ -13,6 +13,7 @@ export default function HeroAssetLibrary(props: {
   onUpload: (files: FileList | null) => Promise<void> | void;
   onOpenOfficial: () => void;
   onDelete: (id: string) => Promise<void> | void;
+  onToggleDisabled: (id: string, disabled: boolean) => Promise<void> | void;
 }) {
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -39,7 +40,7 @@ export default function HeroAssetLibrary(props: {
         {props.assets.length === 0 ? <div className="px-4 py-6 text-sm text-zinc-500">暂无素材</div> : null}
         <div className="divide-y divide-zinc-200">
           {props.assets.map((a) => (
-            <div key={a.id} className="flex items-center gap-4 px-4 py-3">
+            <div key={a.id} className={`flex items-center gap-4 px-4 py-3 ${a.disabled ? 'opacity-50' : ''}`}>
               <div className="h-12 w-16 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
                 {a.media_type === 'video' ? (
                   <video src={a.external_url ?? ''} className="h-full w-full object-cover" muted playsInline />
@@ -52,10 +53,19 @@ export default function HeroAssetLibrary(props: {
                   <div className="truncate text-sm font-semibold text-zinc-900">{a.title || a.external_url || a.id}</div>
                   <span className={statusBadgeCls(a.media_type === 'video' ? 'info' : 'default')}>{a.media_type}</span>
                   <span className={statusBadgeCls(a.source === 'official' ? 'warning' : 'default')}>{a.source === 'official' ? '官图' : '上传'}</span>
+                  {a.disabled ? <span className={statusBadgeCls('warning')}>已下线</span> : <span className={statusBadgeCls('success')}>上架</span>}
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">{formatTime(a.created_at)}</div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className={smallButtonCls(a.disabled ? 'success' : 'warning')}
+                  disabled={props.busy}
+                  onClick={() => props.onToggleDisabled(a.id, !a.disabled)}
+                >
+                  {a.disabled ? '上架' : '下线'}
+                </button>
                 <button
                   type="button"
                   className={smallButtonCls('danger')}

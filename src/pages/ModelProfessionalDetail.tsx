@@ -249,7 +249,7 @@ export default function ModelProfessionalDetail() {
           </section>
 
           <section className="bg-zinc-50">
-            <ModelDetailContent locale={locale} modelId={data.model.id} variant="page" />
+            <ModelDetailContent modelId={data.model.id} variant="page" />
           </section>
         </main>
       )}

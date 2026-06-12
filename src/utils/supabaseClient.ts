@@ -21,15 +21,10 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === "YOUR_SUPABASE_URL" || s
     }),
     auth: {
       signInWithPassword: async ({ email, password }: any) => {
-        if (email === "1398234769@qq.com" && password === "admin123") {
-          mockSession = {
-            user: {
-              id: "mock-user-id",
-              email,
-            },
-          };
-          return { data: { session: mockSession, user: mockSession.user }, error: null };
+        if (import.meta.env.DEV) {
+          console.warn("[supabaseClient] Mock auth: 环境变量未配置，无法验证凭据。");
         }
+        return { data: null, error: { message: "环境变量未配置，无法登录。请检查 .env 文件。" } };
         return { data: null, error: { message: "Invalid email or password" } };
       },
       signOut: async () => {

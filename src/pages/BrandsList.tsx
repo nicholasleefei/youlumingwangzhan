@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { normalizeLocale, type Locale } from "@/i18n/locales";
 import { supabase } from "@/utils/supabaseClient";
 import { listBrands, listSeries, type BrandRow, type SeriesRow } from "@/utils/db";
+import { resolveTableName } from "@/utils/entityTranslation";
 import { Search } from "lucide-react";
 import SafeImage from "@/components/SafeImage";
 import { proxiedImageUrl } from "@/utils/proxyUrl";
@@ -268,7 +269,7 @@ export default function BrandsList() {
           .in("series_jm_id", seriesJmIds)
           .limit(5000),
         supabase
-          .from(locale === "zh-CN" ? "model_details" : `model_details_${locale.toLowerCase().replace(/-/g, '_')}`)
+          .from(resolveTableName("model_details", locale))
           .select("series_jm_id, sizetype, raw, activity_status")
           .in("series_jm_id", seriesJmIds)
           .or("activity_status.is.null,activity_status.eq.0")

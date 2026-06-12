@@ -9,15 +9,14 @@ import * as DB from "@/utils/db";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
 import type { SeriesRow } from "@/utils/db";
 import { supabase } from "@/utils/supabaseClient";
+import { mergeRawTranslations, resolveTableName } from "@/utils/entityTranslation";
 import SafeImage from "@/components/SafeImage";
 import ModelVrBlock from "@/components/modelDetail/ModelVrBlock";
 import ImageLightbox from "@/components/modelDetail/ImageLightbox";
 import AllParamsModal from "@/components/modelDetail/AllParamsModal";
 import ExportAllParamsCard from "@/components/modelDetail/ExportAllParamsCard";
-import { flattenParams } from "@/utils/paramFlatten";
+import { flattenParams, flattenParamsGrouped, type FlattenedParam, type ParamGroup } from "@/utils/paramFlatten";
 import { normalizeSeriesVrConfig } from "@/utils/seriesVrNormalize";
-import { fetchEntityTranslations, getTranslatedField, mergeRawTranslations } from "@/utils/entityTranslation";
-import type { EntityTranslationData } from "@/utils/entityTranslation";
 
 const { getSeriesById } = DB;
 
@@ -299,7 +298,6 @@ export default function SeriesDetail() {
   const [models, setModels] = useState<SeriesModel[]>([]);
   const [modelSpecsMap, setModelSpecsMap] = useState<Record<string, ModelSpecs>>({});
   const [modelRawMap, setModelRawMap] = useState<Record<string, any>>({});
-  const [modelTr, setModelTr] = useState<Map<string, EntityTranslationData>>(new Map());
   const [rawDebug, setRawDebug] = useState<{ rows: number; modelsWithRaw: number } | null>(null);
 
   const [seriesVrLoading, setSeriesVrLoading] = useState(false);
@@ -335,7 +333,7 @@ export default function SeriesDetail() {
     Promise.all([
       getSeriesById(seriesId, locale),
       supabase
-        .from("models_jumdata")
+        .from(resolveTableName("models_jumdata", locale))
         .select("*")
         .eq("series_id", seriesId)
         .eq("activity_status", 0)
@@ -351,14 +349,16 @@ export default function SeriesDetail() {
 
         const ids = rows.map((x) => x.id).filter((x) => typeof x === "string" && x.trim());
         if (ids.length > 0) {
+          // 原 models 表已被删除，使用 model_details 表获取详细参数
           const { data: specsData } = await supabase
-            .from("models")
+            .from(resolveTableName("model_details", locale))
             .select("*")
-            .in("id", ids)
+            .in("model_id", ids)
+            .eq("activity_status", 0)
             .limit(5000);
 
           const { data: rawData } = await supabase
-            .from("model_details")
+            .from(resolveTableName("model_details", locale))
             .select("model_id, raw, activity_status")
             .in("model_id", ids)
             .eq("activity_status", 0)
@@ -366,9 +366,9 @@ export default function SeriesDetail() {
 
           const map: Record<string, ModelSpecs> = {};
           (specsData ?? []).forEach((r: any) => {
-            const id = String(r.id || "");
-            if (!id) return;
-            map[id] = r as ModelSpecs;
+            const mid = String(r.model_id || "");
+            if (!mid) return;
+            map[mid] = r as ModelSpecs;
           });
           if (active) setModelSpecsMap(map);
 
@@ -402,16 +402,8 @@ export default function SeriesDetail() {
     };
   }, [query, t]);
 
-  useEffect(() => {
-    if (!models.length || locale === "zh-CN") return;
-    let active = true;
-    const jmIds = models.map((m) => m.jm_id).filter((n) => typeof n === "number" && Number.isFinite(n));
-    if (!jmIds.length) return;
-    fetchEntityTranslations("model_detail", jmIds, locale)
-      .then((tr) => { if (active) setModelTr(tr); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [models, locale]);
+  // 完整镜像模式：models_jumdata 翻译表已是完整镜像，name 已经翻译过
+  // models 数据直接从 locale 感知的翻译表加载的，无需额外翻译
 
   useEffect(() => {
     let active = true;
@@ -500,12 +492,11 @@ export default function SeriesDetail() {
     const out: Record<string, Array<{ group: string; key: string; label: string; value: any }>> = {};
     for (const m of compareModels) {
       const originalRaw = modelRawMap[m.id];
-      const tr = modelTr.get(String(m.jm_id ?? ""));
-      const mergedRaw = mergeRawTranslations(originalRaw, tr?.raw as any);
-      out[m.id] = extractJumeiParamRows(mergedRaw ?? originalRaw);
+      // 完整镜像模式：直接使用原始 raw（翻译表没有 raw 镜像）
+      out[m.id] = extractJumeiParamRows(originalRaw ?? null);
     }
     return out;
-  }, [compareModels.map((m) => m.id).join("|"), modelRawMap, modelTr]);
+  }, [compareModels.map((m) => m.id).join("|"), modelRawMap]);
 
   const rawGroupStats = useMemo(() => {
     let groups = 0;
@@ -521,24 +512,26 @@ export default function SeriesDetail() {
     return { groups, rows };
   }, [extractedRawByModel]);
 
-  // --- All params & PDF export (from model detail pattern) ---
-  const allParamsPayload = useMemo(() => {
-    const merged: Record<string, any> = {};
+  // --- All params: 按 compareModels 分块，弹窗里一次性展示全部车型的参数 ---
+  const allParamsSections = useMemo(() => {
+    const out: Array<{ modelName: string; groups: ParamGroup[] }> = [];
     for (const m of compareModels) {
       const raw = modelRawMap[m.id];
-      if (raw && typeof raw === "object") {
-        Object.keys(raw).forEach((k) => {
-          if (!(k in merged)) merged[k] = {};
-          if (typeof raw[k] === "object" && raw[k] !== null) {
-            Object.assign(merged[k], raw[k]);
-          }
-        });
-      }
+      const groups = flattenParamsGrouped(raw, { maxItems: 600, maxDepth: 6 });
+      out.push({ modelName: m.name, groups });
     }
-    return merged;
+    return out;
   }, [compareModels, modelRawMap]);
 
-  const inlineAllParams = useMemo(() => flattenParams(allParamsPayload, { maxItems: 320, maxDepth: 6 }), [allParamsPayload]);
+  const inlineAllParams = useMemo(() => {
+    const all: FlattenedParam[] = [];
+    // PDF 导出还是用当前展示的车型
+    for (const m of compareModels) {
+      const raw = modelRawMap[m.id];
+      all.push(...flattenParams(raw, { maxItems: 200, maxDepth: 6 }));
+    }
+    return all;
+  }, [compareModels, modelRawMap]);
 
   const startExportPdf = async () => {
     if (!exportRef.current) return;
@@ -576,58 +569,8 @@ export default function SeriesDetail() {
   };
 
   const groups: CompareGroup[] = useMemo(() => {
-    const fmtDate = (v: any) => {
-      const s = String(v ?? "").trim();
-      if (!s) return "—";
-      if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-      return s;
-    };
-
-    const jumPrefer: Array<[string, string]> = [
-      ["price", "厂商指导价"],
-      ["salestate", "在售状态"],
-      ["productionstate", "生产状态"],
-      ["updated_at", "更新时间"],
-      ["yeartype", "{t('common.yearModel')}"],
-      ["sizetype", "{t('common.level')}"],
-      ["geartype", "变速箱"],
-      ["listdate", "上市时间"],
-      ["environmentalstandards2", "环保标准"],
-      ["displacement2", "排量"],
-      ["displacement", "排量(补充)"],
-      ["seatnum", "座位数"],
-    ];
-
-    const modelPrefer: Array<[string, string]> = [
-      ["energy_type", "能源类型"],
-      ["vehicle_class", "{t('common.level')}(站内)"],
-      ["level", "{t('common.level')}"],
-      ["cltc_range", "CLTC{t('common.range')}(km)"],
-      ["charging_time_fast", "快充时间"],
-      ["fast_charge_percentage", "快充电量范围(%)"],
-      ["motor_total_power", "最大功率(kW)"],
-      ["motor_horsepower", "最大马力(Hp)"],
-      ["motor_total_torque", "最大扭矩(N·m)"],
-      ["length_mm", "长度(mm)"],
-      ["width_mm", "宽度(mm)"],
-      ["height_mm", "高度(mm)"],
-      ["wheelbase_mm", "{t('model.wheelbase')}(mm)"],
-      ["max_speed", "最高车速(km/h)"],
-      ["acceleration_0_100", "0-100加速(s)"],
-      ["seats", "座位数(站内)"],
-    ];
-
-    const jumAllKeys = new Set<string>();
-    const modelAllKeys = new Set<string>();
     const rawGroupIndex = new Map<string, { label: string; rows: Array<{ key: string; label: string }> }>();
     for (const m of compareModels) {
-      Object.keys(m || {}).forEach((k) => jumAllKeys.add(k));
-      const s = modelSpecsMap[m.id] as any;
-      if (s) Object.keys(s).forEach((k) => modelAllKeys.add(k));
-      const specsObj = (s && typeof s.specs === "object" && s.specs) ? (s.specs as any) : null;
-      if (specsObj) Object.keys(specsObj).forEach((k) => modelAllKeys.add(`specs.${k}`));
-
       const rows = extractedRawByModel[m.id] ?? [];
       for (const r of rows) {
         if (!rawGroupIndex.has(r.group)) rawGroupIndex.set(r.group, { label: r.group, rows: [] });
@@ -635,69 +578,7 @@ export default function SeriesDetail() {
       }
     }
 
-    const makeUnknownLabel = (k: string) => k;
-
-    const used = new Set<string>();
-    const pickKeys = (prefer: Array<[string, string]>, available: Set<string>) => {
-      const out: Array<{ key: string; label: string }> = [];
-      for (const [k, label] of prefer) {
-        if (available.has(k) && !used.has(k)) {
-          used.add(k);
-          out.push({ key: k, label });
-        }
-      }
-      return out;
-    };
-
-    const remainingKeys = (available: Set<string>) => {
-      const out = Array.from(available).filter((k) => !used.has(k));
-      out.sort((a, b) => a.localeCompare(b));
-      return out.map((k) => ({ key: k, label: makeUnknownLabel(k) }));
-    };
-
-    const pricingItems = pickKeys(jumPrefer, jumAllKeys);
-    const modelTopItems = pickKeys(modelPrefer, modelAllKeys);
-    const jumRest = remainingKeys(jumAllKeys);
-    const modelRest = remainingKeys(modelAllKeys);
-
     const groups: CompareGroup[] = [];
-
-    if (pricingItems.length > 0) {
-      groups.push({
-        id: "pricing",
-        label: "{t('series.priceStatus')}",
-        items: pricingItems.map((it) => ({
-          key: it.key,
-          label: it.label,
-          get: (m) => {
-            const v = (m as any)[it.key];
-            return it.key.includes("date") || it.key.endsWith("_at") ? fmtDate(v) : v;
-          },
-        })),
-      });
-    }
-
-    if (modelTopItems.length > 0) {
-      groups.push({
-        id: "core",
-        label: "{t('series.coreParams')}",
-        items: modelTopItems.map((it) => ({
-          key: it.key,
-          label: it.label,
-          get: (_m, s) => (s as any)?.[it.key],
-        })),
-      });
-    }
-
-    groups.push({
-      id: "jum_all",
-      label: "全部{t('model.param')}（models_jumdata）",
-      items: jumRest.map((it) => ({
-        key: it.key,
-        label: it.label,
-        get: (m) => (m as any)[it.key],
-      })),
-    });
 
     if (rawGroupIndex.size > 0) {
       const rawGroups = Array.from(rawGroupIndex.values())
@@ -713,7 +594,7 @@ export default function SeriesDetail() {
       for (const g of rawGroups) {
         groups.push({
           id: `raw_${g.label}`,
-          label: `{t('series.jumData')}（${g.label}）`,
+          label: g.label,
           items: g.rows.map((r) => ({
             key: r.key,
             label: r.label,
@@ -727,25 +608,8 @@ export default function SeriesDetail() {
       }
     }
 
-    groups.push({
-      id: "model_all",
-      label: "全部{t('model.param')}（models + specs）",
-      items: modelRest.map((it) => ({
-        key: it.key,
-        label: it.label,
-        get: (_m, s) => {
-          if (it.key.startsWith("specs.")) {
-            const k = it.key.slice("specs.".length);
-            const obj = (s as any)?.specs;
-            return obj && typeof obj === "object" ? (obj as any)[k] : null;
-          }
-          return (s as any)?.[it.key];
-        },
-      })),
-    });
-
     return groups;
-  }, [compareModels, extractedRawByModel, modelRawMap, modelSpecsMap]);
+  }, [compareModels, extractedRawByModel]);
 
   const tableRows = useMemo(() => {
     const rows: Array<
@@ -1053,7 +917,7 @@ export default function SeriesDetail() {
                       }}
                       className="rounded accent-emerald-700"
                     />
-                    <span className="truncate">{getTranslatedField(modelTr, m.jm_id, "name", m.name)}</span>
+                    <span className="truncate">{m.name}</span>
                   </label>
                 );
               })}
@@ -1106,7 +970,7 @@ export default function SeriesDetail() {
                   </th>
                   {compareModels.map((m, idx) => (
                     <th key={m.id} className={`px-4 py-3 text-center font-semibold text-zinc-800 ${idx % 2 === 0 ? 'bg-zinc-100' : 'bg-zinc-50'}`}>
-                      <div className="text-sm">{getTranslatedField(modelTr, m.jm_id, "name", m.name)}</div>
+                      <div className="text-sm">{m.name}</div>
                     </th>
                   ))}
                 </tr>
@@ -1143,7 +1007,7 @@ export default function SeriesDetail() {
         <AllParamsModal
           open={paramsOpen}
           title={`${t("model.allParams")} - ${seriesFullname}`}
-          payload={allParamsPayload}
+          sections={allParamsSections}
           onClose={() => setParamsOpen(false)}
         />
 

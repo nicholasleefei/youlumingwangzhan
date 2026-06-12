@@ -19,7 +19,6 @@ type Props = {
   exporting: boolean;
   variant: Variant;
   onClose?: () => void;
-  addToInquiryText: string;
 };
 
 export default function ModelDetailHeader({
@@ -37,7 +36,6 @@ export default function ModelDetailHeader({
   exporting,
   variant,
   onClose,
-  addToInquiryText,
 }: Props) {
   const { t } = useTranslation();
   const brandsTo = `${base}/brands${brandId ? `?brandId=${encodeURIComponent(brandId)}` : ""}`;
@@ -79,7 +77,7 @@ export default function ModelDetailHeader({
                 : "inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-2 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
             }
           >
-            {inInquiry ? `✓ ${addToInquiryText}` : addToInquiryText}
+            {inInquiry ? `✓ ${t("action.addToInquiry")}` : t("action.addToInquiry")}
           </button>
           <button
             type="button"

@@ -15,19 +15,21 @@ export function buildKeyParams12(model: ModelJumdata | null, details: ModelDetai
   const engine = (raw?.engine ?? {}) as any;
   const body = (raw?.body ?? {}) as any;
   const basic = (raw?.basic ?? {}) as any;
+  const chassissteer = (raw?.chassissteer ?? {}) as any;
 
   const items: KeyParamItem[] = [];
   const push = (key: string, label: string, value: string | null) => {
     items.push({ key, label, value });
   };
 
-  push("yeartype", "年款", pickFirstString(model?.yeartype, details?.yeartype));
-  push("price", "价格", pickFirstString(model?.price, details?.price));
-  push("sizetype", "级别", pickFirstString(model?.sizetype, details?.sizetype));
-  push("seatnum", "座位数", pickFirstString(details?.seatnum));
-  push("drivemode", "驱动方式", pickFirstString(details?.drivemode));
-  push("displacement", "排量", pickFirstString(model?.displacement2, model?.displacement, details?.displacement2));
-  push("geartype", "变速箱", pickFirstString(model?.geartype, details?.geartype));
+  // 全部从 raw JSONB 取值，不混合 scalar 列
+  push("yeartype", "年款", pickFirstString(model?.yeartype, details?.yeartype, basic?.yeartype, basic?.listdate));
+  push("price", "价格", pickFirstString(basic?.price, raw?.price));
+  push("sizetype", "级别", pickFirstString(basic?.sizetype, raw?.sizetype));
+  push("seatnum", "座位数", pickFirstString(basic?.seatnum, raw?.seatnum));
+  push("drivemode", "驱动方式", pickFirstString(chassissteer?.drivemode, basic?.drivemode, raw?.drivemode));
+  push("displacement", "排量", pickFirstString(basic?.displacement, engine?.displacement, raw?.displacement));
+  push("geartype", "变速箱", pickFirstString(basic?.geartype, raw?.geartype));
   push("maxspeed", "最高车速", pickFirstString(basic?.maxspeed, raw?.["basic.maxspeed"], raw?.basic_maxspeed));
   push(
     "acceleration_0_100",

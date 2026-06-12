@@ -172,13 +172,6 @@ export default function AdminApp() {
 
       if (!error && data) {
         setProfile(data);
-      } else if (session.user.email === "1398234769@qq.com") {
-        setProfile({
-          id: session.user.id,
-          email: "1398234769@qq.com",
-          is_super_admin: true,
-          is_approved: true,
-        });
       } else {
         setProfile(null);
       }

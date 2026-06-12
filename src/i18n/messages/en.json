@@ -261,5 +261,6 @@
   "vr.interiorVR": "VR Interior",
   "series.paramCompare": "Specs Compare",
   "series.modelSelect": "Select Models",
-  "series.officialImages": "Official Images"
+  "series.officialImages": "Official Images",
+  "model.searchParams": "Search parameters..."
 }

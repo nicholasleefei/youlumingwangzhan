@@ -3,8 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { normalizeLocale, type Locale } from '@/i18n/locales';
 import { supabase } from '@/utils/supabaseClient';
-import { fetchEntityTranslations } from '@/utils/entityTranslation';
-import type { EntityTranslationData } from '@/utils/entityTranslation';
+import { resolveTableName } from '@/utils/entityTranslation';
 import Globe from '@/components/Globe';
 import ExportProcess from '@/components/ExportProcess';
 import HeroBanner from '@/components/HeroBanner';
@@ -168,7 +167,7 @@ export default function Home() {
     const fetchHotSaleModels = async () => {
       try {
         const { data: details, error } = await supabase
-          .from('model_details')
+          .from(resolveTableName("model_details", locale))
           .select('id, model_id, jm_id, name, logo_url, yeartype, price, sizetype, brandname, parentname, salestate, updated_at, brand_id, brand_jm_id, series_id, hot_card_cover_url, raw')
           .eq('hot_sale', true)
           .eq('activity_status', 0)
@@ -178,12 +177,12 @@ export default function Home() {
         if (error) throw error;
 
         const { data: brandsData } = await supabase
-          .from('brands')
+          .from(resolveTableName("brands", locale))
           .select('id, jm_id, activity_status, logo_url, name, fullname')
           .eq('activity_status', 0);
 
         const { data: seriesData } = await supabase
-          .from('series')
+          .from(resolveTableName("series", locale))
           .select('id, jm_id, logo_url, activity_status, name, fullname')
           .eq('activity_status', 0);
 
@@ -222,20 +221,12 @@ export default function Home() {
           return null;
         }
 
-        // Fetch entity translations for brands & series
-        const brandJmIds = (brandsData ?? []).map((b: any) => b.jm_id).filter((n: any) => typeof n === "number");
-        const seriesJmIds = (seriesData ?? []).map((s: any) => s.jm_id).filter((n: any) => typeof n === "number");
-        const modelJmIds = (details ?? []).map((d: any) => d.jm_id).filter((n: any) => typeof n === "number");
-        const [brandTr, seriesTr, modelTr] = await Promise.all([
-          locale !== "zh-CN" && brandJmIds.length > 0 ? fetchEntityTranslations("brand", brandJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-          locale !== "zh-CN" && seriesJmIds.length > 0 ? fetchEntityTranslations("series", seriesJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-          locale !== "zh-CN" && modelJmIds.length > 0 ? fetchEntityTranslations("model_detail", modelJmIds, locale) : Promise.resolve(new Map<string, EntityTranslationData>()),
-        ]);
+        // 完整镜像模式：brands/series/model_details 已按 locale 切换表，名称已经是翻译后的
+        // 不需要额外获取翻译
 
         const seriesNameMap = new Map<string, string>();
         (seriesData ?? []).forEach((s: any) => {
-          const trName = seriesTr.get(String(s.jm_id))?.name ?? seriesTr.get(String(s.jm_id))?.fullname;
-          const name = String(trName || s.fullname || s.name || "").trim();
+          const name = String(s.fullname || s.name || "").trim();
           if (name) seriesNameMap.set(String(s.id), name);
         });
 
@@ -303,23 +294,18 @@ export default function Home() {
           const seriesJumeCover = seriesId ? (seriesIdToJumeLogo.get(seriesId) ?? null) : null;
           const cover = normUrl(d.hot_card_cover_url) || seriesOfficialCover || seriesJumeCover || modelLogoUrl || null;
 
-          // Apply translations
-                    const trBrandName = typeof d.brand_jm_id === "number" ? (brandTr.get(String(d.brand_jm_id))?.name ?? null) : null;
-          const trSeriesName = seriesJmId ? (seriesTr.get(String(seriesJmId))?.name ?? seriesTr.get(String(seriesJmId))?.fullname ?? null) : null;
-          const trDetail = typeof d.jm_id === "number" ? modelTr.get(String(d.jm_id)) : null;
-          const translatedSizetype = trDetail?.sizetype || d.sizetype;
-
+          // 完整镜像模式：brands/series/model_details 已按 locale 切换表，所有字段已翻译
           return {
           id: String(d.id),
           model_id: modelId,
-          name: trDetail?.name ?? String(d.name ?? ''),
+          name: String(d.name ?? ''),
           logo_url: modelLogoUrl,
-          yeartype: trDetail?.yeartype ?? d.yeartype ?? null,
-          price: trDetail?.price ?? d.price ?? null,
-          sizetype: translatedSizetype ?? null,
-          brandname: trBrandName ?? trDetail?.brandname ?? d.brandname ?? null,
-          parentname: trSeriesName ?? trDetail?.parentname ?? d.parentname ?? null,
-          salestate: trDetail?.salestate ?? d.salestate ?? null,
+          yeartype: d.yeartype ?? null,
+          price: d.price ?? null,
+          sizetype: d.sizetype ?? null,
+          brandname: d.brandname ?? null,
+          parentname: d.parentname ?? null,
+          salestate: d.salestate ?? null,
           brand_id: d.brand_id ? String(d.brand_id) : null,
           brand_jm_id: typeof d.brand_jm_id === 'number' ? d.brand_jm_id : null,
           series_id: seriesId,
@@ -380,10 +366,7 @@ export default function Home() {
     <div className="min-h-screen bg-primary-dark text-text-primary">
       {/* Hero Section */}
       <section className="relative p-0">
-        <HeroBanner
-          title={t('hero.title')}
-          subtitle={t('hero.subtitle', '以合规运营与高效服务为核心，为全球汽车商家及个人提供稳定可靠的中国汽车批量采购解决方案')}
-        />
+        <HeroBanner />
       </section>
 
       {/* Hot Models Section */}

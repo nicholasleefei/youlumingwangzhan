@@ -1,0 +1,1 @@
+- [Translation table routing: model vs model_detail](memory/translations-model-vs-model-detail-tables.md)

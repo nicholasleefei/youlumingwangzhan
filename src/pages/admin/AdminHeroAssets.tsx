@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { cardContentCls, iconContainerCls, secondaryButtonCls, statusBadgeCls } from '@/admin/AdminApp';
 import OfficialPickerModal from '@/components/admin/heroAssets/OfficialPickerModal';
 import HeroAssetLibrary from '@/components/admin/heroAssets/HeroAssetLibrary';
-import HeroSlotsEditor from '@/components/admin/heroAssets/HeroSlotsEditor';
 import HeroPreviewPanel from '@/components/admin/heroAssets/HeroPreviewPanel';
-import HeroPublishHistory from '@/components/admin/heroAssets/HeroPublishHistory';
 import { formatTime, useHeroAssetsAdmin } from '@/hooks/useHeroAssetsAdmin';
 
 export default function AdminHeroAssets() {
@@ -21,13 +19,16 @@ export default function AdminHeroAssets() {
             </div>
             <div>
               <div className="text-xl font-semibold text-zinc-900">首页英雄区展示素材</div>
-              <div className="mt-1 text-sm text-zinc-600">上传图片/视频或从车型官图选择，发布后首页立即生效</div>
+              <div className="mt-1 text-sm text-zinc-600">上传图片/视频或从车型官图选择</div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <span className={statusBadgeCls('info')}>线上版本：{admin.runtime?.current_publish_version_id ? admin.runtime.current_publish_version_id.slice(0, 8) : '未发布'}</span>
-            <span className={statusBadgeCls('default')}>更新时间：{formatTime(admin.runtime?.updated_at ?? null)}</span>
-            <span className={statusBadgeCls(admin.activePublic.length > 0 ? 'success' : 'warning')}>当前生效位：{admin.activePublic.length}</span>
+            <span className={statusBadgeCls('default')}>
+              素材库：{admin.assets.length} 个
+            </span>
+            <span className={statusBadgeCls('info')}>
+              最近更新时间：{formatTime(admin.assets[0]?.created_at ?? null)}
+            </span>
           </div>
         </div>
         <button
@@ -62,27 +63,10 @@ export default function AdminHeroAssets() {
           onUpload={admin.uploadFiles}
           onOpenOfficial={() => setPickerOpen(true)}
           onDelete={admin.deleteAsset}
+          onToggleDisabled={admin.toggleDisabled}
         />
 
-        <HeroSlotsEditor
-          draftSlots={admin.draftSlots}
-          setDraftSlots={admin.setDraftSlots}
-          availableAssets={admin.availableAssets}
-          busy={admin.busy}
-          changeNote={admin.changeNote}
-          setChangeNote={admin.setChangeNote}
-          onPublish={admin.publish}
-        />
-      </div>
-
-      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <HeroPreviewPanel slots={admin.activePublic} />
-        <HeroPublishHistory
-          history={admin.history}
-          currentVersionId={admin.runtime?.current_publish_version_id ?? null}
-          busy={admin.busy}
-          onRollback={admin.rollbackTo}
-        />
+        <HeroPreviewPanel assets={admin.assets.filter(a => !a.disabled)} />
       </div>
 
       <OfficialPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={admin.addOfficialAssets} />

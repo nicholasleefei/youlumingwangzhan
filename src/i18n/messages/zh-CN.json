@@ -261,5 +261,6 @@
   "vr.interiorVR": "内饰 VR",
   "series.paramCompare": "参配对比",
   "series.modelSelect": "选择对比车型",
-  "series.officialImages": "官方图片"
+  "series.officialImages": "官方图片",
+  "model.searchParams": "搜索参数..."
 }
