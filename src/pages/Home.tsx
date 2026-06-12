@@ -8,6 +8,7 @@ import Globe from '@/components/Globe';
 import ExportProcess from '@/components/ExportProcess';
 import HeroBanner from '@/components/HeroBanner';
 import SafeImage from '@/components/SafeImage';
+import SeoHead from '@/components/SeoHead';
 import { proxiedImageUrl } from '@/utils/proxyUrl';
 import { useInquiryDraft } from '@/store/useInquiryDraft';
 import { useInquiryModal } from '@/store/useInquiryModal';
@@ -363,7 +364,28 @@ export default function Home() {
   }, [filteredHotSaleModels.map((m) => m.id).join('|')]);
 
   return (
-    <div className="min-h-screen bg-primary-dark text-text-primary">
+    <>
+      <SeoHead
+        locale={locale}
+        title={t("seo.home.title")}
+        description={t("seo.home.description")}
+        canonicalPath={`/${locale}`}
+        ogImage="/tech-car-bg.jpg"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          "name": "YOLUMI",
+          "url": `https://yolumi.com/${locale}`,
+          "logo": "https://yolumi.com/favicon.png",
+          "description": t("seo.home.description"),
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "contactType": "sales",
+            "availableLanguage": ["en", "zh-CN", "ar", "ru", "th", "ur", "pt-BR"],
+          },
+        }}
+      />
+      <div className="min-h-screen bg-primary-dark text-text-primary">
       {/* Hero Section */}
       <section className="relative p-0">
         <HeroBanner />
@@ -624,5 +646,6 @@ export default function Home() {
         </div>
       </section>
     </div>
+    </>
   );
 }

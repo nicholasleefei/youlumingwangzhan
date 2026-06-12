@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /models/all
+
+Sitemap: https://yolumi.com/sitemap-index.xml

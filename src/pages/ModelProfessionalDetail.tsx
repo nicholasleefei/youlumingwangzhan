@@ -5,6 +5,7 @@ import { normalizeLocale, type Locale } from "@/i18n/locales";
 import { getModelBySlug, type ModelRow } from "@/utils/db";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
 import ModelDetailContent from "@/components/modelDetail/ModelDetailContent";
+import SeoHead from "@/components/SeoHead";
 
 type ModelData = Awaited<ReturnType<typeof getModelBySlug>>;
 
@@ -143,6 +144,50 @@ export default function ModelProfessionalDetail() {
       )}
 
       {!loading && data && (
+        <>
+          <SeoHead
+            locale={locale}
+            title={t("seo.model.title", { modelName: fullname, brandName: model.brand })}
+            description={t("seo.model.description", { modelName: fullname })}
+            canonicalPath={`/${locale}/models/${slug}`}
+            ogImage={coverImage}
+            ogType="product"
+            structuredData={[
+              {
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                  { "@type": "ListItem", "position": 1, "name": t("nav.home"), "item": `https://yolumi.com/${locale}` },
+                  { "@type": "ListItem", "position": 2, "name": t("nav.brands"), "item": `https://yolumi.com/${locale}/brands` },
+                  { "@type": "ListItem", "position": 3, "name": fullname },
+                ],
+              },
+              {
+                "@context": "https://schema.org",
+                "@type": "Car",
+                "name": fullname,
+                "brand": { "@type": "Brand", "name": model.brand as string },
+                "model": name,
+                "image": coverImage,
+                ...(model.energy_type ? {
+                  "vehicleEngine": {
+                    "@type": "EngineSpecification",
+                    "fuelType": model.energy_type as string,
+                    ...(model.motor_horsepower != null ? { "enginePower": { "@type": "QuantitativeValue", "value": model.motor_horsepower as number, "unitCode": "N12" } } : {}),
+                    ...(model.motor_total_torque != null ? { "torque": { "@type": "QuantitativeValue", "value": model.motor_total_torque as number, "unitCode": "NWT" } } : {}),
+                  }
+                } : {}),
+                ...(model.fob_price_min != null || model.fob_price_max != null ? {
+                  "offers": {
+                    "@type": "Offer",
+                    "price": (model.fob_price_min || model.fob_price_max) as number,
+                    "priceCurrency": (model.currency || "GBP") as string,
+                    "availability": "https://schema.org/InStock",
+                  }
+                } : {}),
+              },
+            ]}
+          />
         <main className="relative z-10">
           <section className="relative h-[70vh] min-h-[300px] sm:min-h-[500px] overflow-hidden">
             <img
@@ -252,6 +297,7 @@ export default function ModelProfessionalDetail() {
             <ModelDetailContent modelId={data.model.id} variant="page" />
           </section>
         </main>
+        </>
       )}
     </div>
   );

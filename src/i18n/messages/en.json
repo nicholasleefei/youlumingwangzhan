@@ -262,5 +262,15 @@
   "series.paramCompare": "Specs Compare",
   "series.modelSelect": "Select Models",
   "series.officialImages": "Official Images",
-  "model.searchParams": "Search parameters..."
+  "model.searchParams": "Search parameters...",
+  "seo.home.title": "YOLUMI — Chinese Auto Export | Hot Models & Quotes",
+  "seo.home.description": "Professional Chinese automobile bulk export services. Browse hot models from top brands, compare vehicle specs, and request FOB quotes. Serving Middle East, Southeast Asia, Africa, and South America.",
+  "seo.brands.title": "Browse All Brands — YOLUMI Auto Export",
+  "seo.brands.description": "Explore Chinese car brands available for bulk export. Compare series, models, and specifications across major manufacturers.",
+  "seo.series.title": "{{seriesName}} Series | {{brandName}} — YOLUMI",
+  "seo.series.description": "Browse the {{seriesName}} series by {{brandName}}. View specs, models, official images, VR 360 experience, and request quotes for bulk purchase.",
+  "seo.model.title": "{{modelName}} | {{brandName}} — YOLUMI",
+  "seo.model.description": "{{modelName}} specifications — view full specs, images, and request FOB export quote for bulk purchase.",
+  "seo.siteName": "YOLUMI — Chinese Auto Export Platform",
+  "seo.og.imageAlt": "YOLUMI vehicle showcase"
 }

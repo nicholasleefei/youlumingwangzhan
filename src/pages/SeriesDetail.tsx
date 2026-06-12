@@ -11,6 +11,7 @@ import type { SeriesRow } from "@/utils/db";
 import { supabase } from "@/utils/supabaseClient";
 import { mergeRawTranslations, resolveTableName } from "@/utils/entityTranslation";
 import SafeImage from "@/components/SafeImage";
+import SeoHead from "@/components/SeoHead";
 import ModelVrBlock from "@/components/modelDetail/ModelVrBlock";
 import ImageLightbox from "@/components/modelDetail/ImageLightbox";
 import AllParamsModal from "@/components/modelDetail/AllParamsModal";
@@ -721,6 +722,36 @@ export default function SeriesDetail() {
   const statFuel = pickNumberString(basic?.mixfuelconsumption, basic?.comfuelconsumption, basic?.electricfuelconsumption, rawAny?.basic_mixfuelconsumption);
 
   return (
+    <>
+      <SeoHead
+        locale={locale}
+        title={t("seo.series.title", { seriesName: seriesFullname, brandName })}
+        description={t("seo.series.description", { seriesName: seriesFullname, brandName })}
+        canonicalPath={`/${locale}/series/${seriesId}`}
+        ogImage={bannerImage}
+        ogType="product"
+        structuredData={[
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": t("nav.home"), "item": `https://yolumi.com/${locale}` },
+              { "@type": "ListItem", "position": 2, "name": t("nav.brands"), "item": `https://yolumi.com/${locale}/brands` },
+              { "@type": "ListItem", "position": 3, "name": brandName, "item": `https://yolumi.com/${locale}/brands?brandId=${series.brand_id}` },
+              { "@type": "ListItem", "position": 4, "name": seriesFullname },
+            ],
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "Car",
+            "name": seriesFullname,
+            "brand": { "@type": "Brand", "name": brandName },
+            "model": primaryModel?.name || seriesFullname,
+            "image": bannerImage,
+            ...(wheelbase ? { "vehicleConfiguration": wheelbase } : {}),
+          },
+        ]}
+      />
     <div className="bg-zinc-50">
       <div className="relative overflow-hidden border-b border-zinc-200 bg-white">
         <div className="absolute inset-0 opacity-90">
@@ -1020,5 +1051,6 @@ export default function SeriesDetail() {
         </div>
       </div>
     </div>
+    </>
   );
 }

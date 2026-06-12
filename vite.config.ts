@@ -28,6 +28,7 @@ export default defineConfig({
           zustand: ['zustand'],
           d3: ['d3-geo', 'd3-polygon'],
           lucide: ['lucide-react'],
+          helmet: ['react-helmet-async'],
         },
       },
     },

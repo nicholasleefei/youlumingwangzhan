@@ -7,6 +7,7 @@ import { listBrands, listSeries, type BrandRow, type SeriesRow } from "@/utils/d
 import { resolveTableName } from "@/utils/entityTranslation";
 import { Search } from "lucide-react";
 import SafeImage from "@/components/SafeImage";
+import SeoHead from "@/components/SeoHead";
 import { proxiedImageUrl } from "@/utils/proxyUrl";
 import { useInquiryDraft } from "@/store/useInquiryDraft";
 
@@ -439,6 +440,35 @@ export default function BrandsList() {
   const selectedBrandName = selectedBrand ? (selectedBrand.fullname || selectedBrand.name) : null;
 
   return (
+    <>
+      <SeoHead
+        locale={locale}
+        title={t("seo.brands.title")}
+        description={t("seo.brands.description")}
+        canonicalPath={`/${locale}/brands`}
+        structuredData={[
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": t("nav.home"), "item": `https://yolumi.com/${locale}` },
+              { "@type": "ListItem", "position": 2, "name": t("nav.brands"), "item": `https://yolumi.com/${locale}/brands` },
+            ],
+          },
+          ...(brands.length > 0
+            ? [{
+                "@context": "https://schema.org",
+                "@type": "ItemList",
+                "itemListElement": brands.slice(0, 20).map((brand, i) => ({
+                  "@type": "ListItem",
+                  "position": i + 1,
+                  "url": `https://yolumi.com/${locale}/brands?brandId=${brand.id}`,
+                  "name": brand.fullname || brand.name,
+                })),
+              } as Record<string, unknown>]
+            : []),
+        ]}
+      />
     <div className="bg-zinc-50">
       <div className="relative overflow-hidden border-b border-zinc-200 bg-white">
         <div className="absolute inset-0">
@@ -817,5 +847,6 @@ export default function BrandsList() {
         ) : null}
       </div>
     </div>
+    </>
   );
 }
