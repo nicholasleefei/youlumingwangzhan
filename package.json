@@ -4,7 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "npm run i18n:sync",
     "dev": "concurrently -k -n proxy,vite -c blue,green \"npm run proxy:start\" \"vite\"",
     "proxy:start": "node scripts/proxy-server.mjs",
     "proxy": "node scripts/proxy-server.mjs",
